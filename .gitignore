@@ -1,0 +1,20 @@
+# Ignore folders starting with "sample"
+sample*/
+
+# Ignore all tif files
+*.tif
+*.nd
+*.pyc
+*.png
+*.mat
+.DS_Store
+*.json
+AutoOutline/
+*.txt
+*.tmp
+
+# Ignore specific directories
+Y333 ATP6 ATP2/
+Y333 ATP6 ATP3/
+Y333 ATP6 TIM50/
+all_atp6/
