@@ -5,17 +5,15 @@ import json
 from scipy.ndimage import binary_dilation
 from skimage.morphology import disk
 
-# 目录设置
-base_dir = r'F:/atp/Y333 ATP6 ATP3'
-deconv_dir = os.path.join(base_dir, 'deconvolved')
+# Configuration parameters
+add_noise = False  # Set to False to disable Gaussian noise addition
+base_dir = r'Y333 ATP6 ATP2'
+deconv_dir = os.path.join(base_dir, 'binaries')
 mask_dir = os.path.join(base_dir, 'aligned_masks')
-output_base = os.path.join(base_dir, 'extracted_cells')
+output_base = os.path.join(base_dir, 'extracted_cells_binary_rm_noise')
 os.makedirs(output_base, exist_ok=True)
 
 def parse_deconv_filename(filename):
-    # 解析deconv文件名，返回前缀和index
-    # 例如 deconv_yWL333_cy3_ATP2_cy5_ATP6MS2_1_w4FITC-100-_s1.TIF
-    # -> yWL333_cy3_ATP2_cy5_ATP6MS2_1, s1
     name = os.path.splitext(filename)[0]
     if not name.startswith('deconv_'):
         return None, None
@@ -23,14 +21,12 @@ def parse_deconv_filename(filename):
     if '_w4FITC-100-' in name:
         prefix, sidx = name.split('_w4FITC-100-')
     else:
-        # 兼容没有-w4FITC-100-的情况
         parts = name.split('_s')
         if len(parts) < 2:
             return None, None
         prefix = '_s'.join(parts[:-1])
         sidx = 's' + parts[-1]
         return prefix, sidx
-    # sidx 形如 _s1
     if sidx.startswith('_'):
         sidx = sidx[1:]
     return prefix, sidx
@@ -71,7 +67,6 @@ def extract_cells(mask_path, image_path, output_dir):
     labels = np.unique(mask)
     labels = labels[labels != 0]
     
-    # 创建细胞信息列表，包含原始label和y_min坐标
     cell_info = []
     for label in labels:
         mask_single = (mask == label)
@@ -135,11 +130,18 @@ def extract_cells(mask_path, image_path, output_dir):
         for z in range(image.shape[0]):
             current_slice = image_crop[z]
             result_slice = np.zeros_like(current_slice, dtype=np.uint16)
-            mean_noise, std_noise = create_background_noise(current_slice, mask_single_crop, mask=mask_crop)
-            noise_shape = current_slice.shape
-            noise = np.random.normal(mean_noise, std_noise, noise_shape)
-            noise = np.clip(noise, 0, 65535).astype(np.uint16)
-            result_slice[:] = noise
+            
+            if add_noise:
+                # Add Gaussian noise to background
+                mean_noise, std_noise = create_background_noise(current_slice, mask_single_crop, mask=mask_crop)
+                noise_shape = current_slice.shape
+                noise = np.random.normal(mean_noise, std_noise, noise_shape)
+                noise = np.clip(noise, 0, 65535).astype(np.uint16)
+                result_slice[:] = noise
+            else:
+                # Keep background as zeros (no noise)
+                result_slice[:] = 0
+            
             result_slice[mask_single_crop] = current_slice[mask_single_crop]
             result[z] = result_slice
         output_path = os.path.join(output_dir, f'cell_{new_id:03d}.tif')
@@ -149,6 +151,8 @@ def extract_cells(mask_path, image_path, output_dir):
         json.dump(coordinate_mapping, f, indent=2)
 
 if __name__ == '__main__':
+    print(f"Gaussian noise addition: {'Enabled' if add_noise else 'Disabled'}")
+    
     for fname in os.listdir(deconv_dir):
         if not fname.lower().endswith('.tif') and not fname.lower().endswith('.tiff'):
             continue
@@ -167,4 +171,4 @@ if __name__ == '__main__':
             extract_cells(mask_path, image_path, output_dir)
             print(f"完成: {output_dir}")
         except Exception as e:
-            print(f"处理 {fname} 时出错: {e}") 
+            print(f"处理 {fname} 时出错: {e}")

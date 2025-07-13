@@ -1,0 +1,2 @@
+total_cells,z_offset_mean,z_offset_std,z_offset_range,dynamic_mean_distance,static_mean_distance,dynamic_advantage,global_offset
+356,0.18820224719101136,0.4192227867093395,"[np.float64(-2.0), np.float64(2.0)]",2.1736587310272046,2.200859526381327,0.02720079535412223,0.18820224719101136

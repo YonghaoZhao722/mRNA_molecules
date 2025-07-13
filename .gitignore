@@ -1,5 +1,6 @@
 # Ignore folders starting with "sample"
 sample*/
+repos/MitoGraph/
 
 # Ignore all tif files
 *.tif

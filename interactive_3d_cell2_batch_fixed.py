@@ -21,8 +21,9 @@ class Interactive3DBatchVisualizerFixed:
 
         # Path settings
         self.base_dir = r'Y333 ATP6 ATP2'
-        self.skeleton_root = os.path.join(self.base_dir, 'extracted_cells')
-        self.channel = 'atp6'
+        self.skeleton_type = 'extracted_cells_z_adaptive'
+        self.skeleton_root = os.path.join(self.base_dir, self.skeleton_type)
+        self.channel = 'atp6_corrected'
         self.spots_root = os.path.join(self.base_dir, f'{self.channel}_spots')
 
         # Data structures
@@ -62,18 +63,18 @@ class Interactive3DBatchVisualizerFixed:
 
     def load_spots_fishquant_analyze_method(self, file_path, cell_number=1, flip_y=True, mapping_data=None, silent=False):
         """
-        完全复制analyze_alignment.py中load_spots_fishquant的正确方法
-        修复：正确处理某些细胞没有spots数据的情况
+        Complete copy of the correct load_spots_fishquant method from analyze_alignment.py
+        Fix: Properly handle cases where some cells have no spots data
         """
-        # 读取文件找到SPOTS部分
+        # Read file to find SPOTS section
         with open(file_path, 'r') as f:
             lines = f.readlines()
         
-        # 找到像素大小信息
+        # Find pixel size information
         pixel_xy, pixel_z = None, None
         for i, line in enumerate(lines):
             if line.startswith('Pix-XY'):
-                # 像素大小数值在下一行
+                # Pixel size values are on the next line
                 if i + 1 < len(lines):
                     next_line = lines[i + 1].strip()
                     parts = next_line.split('\t')
@@ -83,9 +84,9 @@ class Interactive3DBatchVisualizerFixed:
                 break
         
         if not silent:
-            print(f"FISH-QUANT像素大小: XY={pixel_xy}nm, Z={pixel_z}nm")
+            print(f"FISH-QUANT pixel size: XY={pixel_xy}nm, Z={pixel_z}nm")
         
-        # 找到指定细胞的SPOTS数据
+        # Find SPOTS data for the specified cell
         target_cell = f"CELL\tCell_{cell_number}"
         cell_found = False
         spots_start = -1
@@ -94,41 +95,41 @@ class Interactive3DBatchVisualizerFixed:
         for i, line in enumerate(lines):
             line_stripped = line.strip()
             
-            # 遇到目标细胞标记
+            # Found target cell marker
             if line_stripped == target_cell:
                 cell_found = True
                 if not silent:
-                    print(f"找到目标细胞: Cell_{cell_number}")
+                    print(f"Found target cell: Cell_{cell_number}")
                 continue
             
-            # 如果已找到目标细胞，且遇到SPOTS标记（说明这个细胞有spots数据）
+            # If target cell found and SPOTS marker encountered (indicating this cell has spots data)
             if cell_found and line.startswith('Pos_Y'):
                 spots_start = i
                 continue
             
-            # 如果已找到目标细胞和spots开始位置，遇到下一个CELL标记表示结束
+            # If target cell and spots start position found, next CELL marker indicates end
             if cell_found and spots_start != -1 and line.startswith('CELL'):
                 spots_end = i
                 break
                 
-            # 关键修复：如果已找到目标细胞但还没找到spots开始位置，
-            # 遇到下一个CELL标记，说明目标细胞没有spots数据
+            # Critical fix: If target cell found but spots start position not found,
+            # encountering next CELL marker means target cell has no spots data
             if cell_found and spots_start == -1 and line.startswith('CELL'):
                 if not silent:
-                    print(f"Cell_{cell_number} 没有spots数据（在找到spots开始位置前遇到了下一个细胞）")
-                raise ValueError(f"Cell_{cell_number} 没有spots数据")
+                    print(f"Cell_{cell_number} has no spots data (next cell encountered before finding spots start position)")
+                raise ValueError(f"Cell_{cell_number} has no spots data")
         
-        # 如果没找到下一个CELL标记，说明是最后一个细胞
+        # If no next CELL marker found, this is the last cell
         if cell_found and spots_start != -1 and spots_end == -1:
             spots_end = len(lines)
         
         if not cell_found:
-            raise ValueError(f"未找到Cell_{cell_number}的数据")
+            raise ValueError(f"Cell_{cell_number} data not found")
         
         if spots_start == -1:
-            raise ValueError(f"Cell_{cell_number} 没有spots数据")
+            raise ValueError(f"Cell_{cell_number} has no spots data")
         
-        # 读取该细胞的spots数据
+        # Read spots data for this cell
         spots_data = []
         for i in range(spots_start + 1, spots_end):
             line = lines[i].strip()
@@ -143,94 +144,94 @@ class Interactive3DBatchVisualizerFixed:
         
         coords = np.array(spots_data)
         
-        # 如果需要翻转Y轴
+        # If Y-axis flip is needed
         if flip_y and mapping_data:
-            # 使用mapping数据中的crop区域信息进行精确翻转
+            # Use crop region information from mapping data for precise flip
             cell_name = f"cell_{cell_number:03d}"
             if cell_name in mapping_data:
                 crop_info = mapping_data[cell_name]['crop_region']
-                y_start = crop_info['y_start']  # 像素坐标
-                y_end = crop_info['y_end']      # 像素坐标
+                y_start = crop_info['y_start']  # Pixel coordinates
+                y_end = crop_info['y_end']      # Pixel coordinates
                 
-                # 转换为纳米坐标 (像素 * 像素大小)
+                # Convert to nanometer coordinates (pixel * pixel size)
                 y_start_nm = y_start * pixel_xy
                 y_end_nm = y_end * pixel_xy
                 
-                # 基于crop区域进行翻转：new_y = (y_start + y_end) - old_y
+                # Flip based on crop region: new_y = (y_start + y_end) - old_y
                 flip_center = y_start_nm + y_end_nm
                 coords[:, 0] = flip_center - coords[:, 0]
                 
                 if not silent:
-                    print(f"Y轴翻转: 基于crop区域 y_start={y_start_nm:.1f}nm, y_end={y_end_nm:.1f}nm")
+                    print(f"Y-axis flip: Based on crop region y_start={y_start_nm:.1f}nm, y_end={y_end_nm:.1f}nm")
             else:
                 if not silent:
-                    print(f"警告: 未找到{cell_name}的mapping信息，跳过Y轴翻转")
+                    print(f"Warning: Mapping information for {cell_name} not found, skipping Y-axis flip")
         elif flip_y:
             if not silent:
-                print("警告: 需要mapping数据进行精确Y轴翻转，使用简单翻转")
-            # 简单翻转：基于当前细胞spots的范围
+                print("Warning: Mapping data needed for precise Y-axis flip, using simple flip")
+            # Simple flip: Based on current cell spots range
             if len(coords) > 0:
                 y_min, y_max = coords[:, 0].min(), coords[:, 0].max()
                 flip_center = y_min + y_max
                 coords[:, 0] = flip_center - coords[:, 0]
                 if not silent:
-                    print(f"Y轴翻转: 基于细胞范围，翻转中心={flip_center/2:.1f}nm")
+                    print(f"Y-axis flip: Based on cell range, flip center={flip_center/2:.1f}nm")
         
         if not silent:
-            print(f"Cell_{cell_number} Spots数据加载完成: {len(coords)} 个点")
-            print(f"坐标范围: X=[{coords[:,1].min():.1f}, {coords[:,1].max():.1f}], Y=[{coords[:,0].min():.1f}, {coords[:,0].max():.1f}], Z=[{coords[:,2].min():.1f}, {coords[:,2].max():.1f}]")
+            print(f"Cell_{cell_number} spots data loading completed: {len(coords)} points")
+            print(f"Coordinate range: X=[{coords[:,1].min():.1f}, {coords[:,1].max():.1f}], Y=[{coords[:,0].min():.1f}, {coords[:,0].max():.1f}], Z=[{coords[:,2].min():.1f}, {coords[:,2].max():.1f}]")
         
         return coords, pixel_xy, pixel_z
 
     def load_skeleton_txt_analyze_method(self, file_path, mapping_data=None, cell_name="cell_001", pixel_size_xy=0.0645, silent=False):
         """
-        完全复制analyze_alignment.py中load_skeleton_txt的正确方法
+        Complete copy of the correct load_skeleton_txt method from analyze_alignment.py
         """
         df = pd.read_csv(file_path, sep='\t')
-        # 提取坐标列 (x, y, z) - 这些是相对于截取区域的坐标
+        # Extract coordinate columns (x, y, z) - these are coordinates relative to the cropped region
         coords = df[['x', 'y', 'z']].values
         if not silent:
-            print(f"Skeleton数据加载完成: {len(coords)} 个点")
-            print(f"相对坐标范围: X=[{coords[:,0].min():.3f}, {coords[:,0].max():.3f}], Y=[{coords[:,1].min():.3f}, {coords[:,1].max():.3f}], Z=[{coords[:,2].min():.3f}, {coords[:,2].max():.3f}]")
+            print(f"Skeleton data loading completed: {len(coords)} points")
+            print(f"Relative coordinate range: X=[{coords[:,0].min():.3f}, {coords[:,0].max():.3f}], Y=[{coords[:,1].min():.3f}, {coords[:,1].max():.3f}], Z=[{coords[:,2].min():.3f}, {coords[:,2].max():.3f}]")
         
-        # 如果提供了mapping数据，转换为绝对坐标
+        # If mapping data is provided, convert to absolute coordinates
         if mapping_data and cell_name:
             if cell_name in mapping_data:
                 crop_info = mapping_data[cell_name]['crop_region']
                 x_offset = crop_info['x_offset']
                 y_offset = crop_info['y_offset']
                 
-                # 将像素偏移量转换为微米单位，并加到相对坐标上
+                # Convert pixel offset to micrometers and add to relative coordinates
                 offset_x_um = x_offset * pixel_size_xy
                 offset_y_um = y_offset * pixel_size_xy
                 
-                coords[:, 0] += offset_x_um  # X坐标加偏移
-                coords[:, 1] += offset_y_um  # Y坐标加偏移
-                # Z坐标不需要偏移，因为是3D图像的深度方向
+                coords[:, 0] += offset_x_um  # Add offset to X coordinate
+                coords[:, 1] += offset_y_um  # Add offset to Y coordinate
+                # Z coordinate doesn't need offset as it's the depth direction of 3D image
                 
                 if not silent:
-                    print(f"应用坐标偏移: X+{offset_x_um:.3f}μm (像素{x_offset}), Y+{offset_y_um:.3f}μm (像素{y_offset})")
-                    print(f"绝对坐标范围: X=[{coords[:,0].min():.3f}, {coords[:,0].max():.3f}], Y=[{coords[:,1].min():.3f}, {coords[:,1].max():.3f}], Z=[{coords[:,2].min():.3f}, {coords[:,2].max():.3f}]")
+                    print(f"Applied coordinate offset: X+{offset_x_um:.3f}μm (pixel {x_offset}), Y+{offset_y_um:.3f}μm (pixel {y_offset})")
+                    print(f"Absolute coordinate range: X=[{coords[:,0].min():.3f}, {coords[:,0].max():.3f}], Y=[{coords[:,1].min():.3f}, {coords[:,1].max():.3f}], Z=[{coords[:,2].min():.3f}, {coords[:,2].max():.3f}]")
             else:
                 if not silent:
-                    print(f"警告: 在mapping文件中未找到{cell_name}")
+                    print(f"Warning: {cell_name} not found in mapping file")
         else:
             if not silent:
                 if mapping_data:
-                    print(f"警告: mapping文件不存在")
-                print("使用相对坐标（未应用偏移）")
+                    print(f"Warning: mapping file does not exist")
+                print("Using relative coordinates (no offset applied)")
         
         return coords 
 
     def scan_available_images_and_cells(self):
-        """扫描所有图像和细胞，通过索引和视野双重匹配spot文件与图像文件夹
-        修复：准确检测哪些细胞真正有spots数据"""
+        """Scan all images and cells, match spot files with image folders through index and field-of-view double matching
+        Fix: Accurately detect which cells actually have spots data"""
         self.available_images = {}
         if not os.path.exists(self.skeleton_root):
             print(f"Skeleton root not found: {self.skeleton_root}")
             return
             
-        # 获取所有spot文件
+        # Get all spot files
         spot_files = [f for f in os.listdir(self.spots_root) if f.endswith('.txt') and '_spots' in f]
         
         for image_folder in os.listdir(self.skeleton_root):
@@ -238,7 +239,7 @@ class Interactive3DBatchVisualizerFixed:
             if not os.path.isdir(image_path):
                 continue
 
-            # 加载坐标映射
+            # Load coordinate mapping
             mapping_file = os.path.join(image_path, 'coordinate_mapping.json')
             if os.path.exists(mapping_file):
                 with open(mapping_file, 'r') as f:
@@ -247,14 +248,14 @@ class Interactive3DBatchVisualizerFixed:
                 print(f"Warning: coordinate_mapping.json not found in {image_path}")
                 continue
 
-            # 解析索引和视野
+            # Parse index and field-of-view
             parts = image_folder.split('_')
             if len(parts) < 2:
                 continue
             index = parts[-2]
             fov = parts[-1]
             
-            # 匹配spot文件
+            # Match spot file
             matched_spot = None
             for spot_file in spot_files:
                 if f'_{index}_' in spot_file and f'_{fov}_' in spot_file and '_spots' in spot_file:
@@ -265,7 +266,7 @@ class Interactive3DBatchVisualizerFixed:
                 print(f"Spot file not found for {image_folder} (index={index}, fov={fov})")
                 continue
 
-            # 扫描skeleton文件
+            # Scan skeleton files
             skeleton_files = [f for f in os.listdir(image_path) if f.startswith('cell_') and f.endswith('.txt')]
             image_cells = {}
             
@@ -274,18 +275,18 @@ class Interactive3DBatchVisualizerFixed:
                     cell_num = int(skel_file.split('_')[1].split('.')[0])
                     cell_name = f"Cell_{cell_num}"
                     
-                    # 严格检查这个细胞是否在spot文件中有实际的spots数据
+                    # Strictly check if this cell actually has spots data in the spot file
                     try:
-                        # 使用修复后的函数来严格验证spots数据
+                        # Use the fixed function to strictly verify spots data
                         test_coords, _, _ = self.load_spots_fishquant_analyze_method(
                             matched_spot, 
                             cell_number=cell_num, 
-                            flip_y=False,  # 测试时不翻转
-                            mapping_data=None,  # 测试时不用mapping
-                            silent=True  # 静默模式
+                            flip_y=False,  # Don't flip during testing
+                            mapping_data=None,  # Don't use mapping during testing
+                            silent=True  # Silent mode
                         )
                         
-                        # 如果能成功加载且有数据，则添加到可用列表
+                        # If successfully loaded with data, add to available list
                         if len(test_coords) > 0:
                             image_cells[cell_name] = {
                                 'spots_file': matched_spot,
@@ -296,7 +297,7 @@ class Interactive3DBatchVisualizerFixed:
                             print(f"Skipping {image_folder}-{cell_name}: spots data is empty")
                             
                     except ValueError as e:
-                        # 如果抛出"没有spots数据"的异常，跳过这个细胞
+                        # If "no spots data" exception is thrown, skip this cell
                         print(f"Skipping {image_folder}-{cell_name}: {str(e)}")
                     except Exception as e:
                         print(f"Error checking spots file for {cell_name}: {e}")
@@ -307,7 +308,7 @@ class Interactive3DBatchVisualizerFixed:
             if image_cells:
                 self.available_images[image_folder] = image_cells
         
-        # 更新图像下拉框
+        # Update image dropdown
         if hasattr(self, 'image_combo'):
             self.image_combo['values'] = list(self.available_images.keys())
             if self.available_images:
@@ -315,7 +316,7 @@ class Interactive3DBatchVisualizerFixed:
 
     def load_cell_data_analyze_method(self, image_name, cell_name):
         """
-        使用analyze_alignment.py验证过的正确方法加载细胞数据
+        Load cell data using the correct method verified by analyze_alignment.py
         """
         if image_name not in self.available_images or cell_name not in self.available_images[image_name]:
             print(f"Cell {cell_name} in image {image_name} not available")
@@ -326,15 +327,15 @@ class Interactive3DBatchVisualizerFixed:
             self.current_cell = cell_name
             cell_info = self.available_images[image_name][cell_name]
             
-            # 获取细胞编号和映射数据
+            # Get cell number and mapping data
             cell_number = int(cell_name.split("_")[1])
             cell_id_str = f"{cell_number:03d}"
             mapping_cell_name = f'cell_{cell_id_str}'
             mapping_data = self.coordinate_mappings.get(image_name, {})
             
-            print(f"=== 加载 {image_name} - {cell_name} ===")
+            print(f"=== Loading {image_name} - {cell_name} ===")
             
-            # 1. 加载spots数据（使用analyze_alignment.py的方法）
+            # 1. Load spots data (using analyze_alignment.py method)
             spots_coords, pixel_xy, pixel_z = self.load_spots_fishquant_analyze_method(
                 cell_info['spots_file'], 
                 cell_number=cell_number, 
@@ -342,58 +343,57 @@ class Interactive3DBatchVisualizerFixed:
                 mapping_data=mapping_data
             )
             
-            # 2. 加载skeleton数据（使用analyze_alignment.py的方法）
+            # 2. Load skeleton data (using analyze_alignment.py method)
             skeleton_coords = self.load_skeleton_txt_analyze_method(
                 cell_info['skeleton_file'], 
                 mapping_data=mapping_data,
                 cell_name=mapping_cell_name,
-                pixel_size_xy=pixel_xy/1000  # 转换为微米
+                pixel_size_xy=pixel_xy/1000  # Convert to micrometers
             )
             
-            # 3. 坐标转换（完全按照analyze_alignment.py的逻辑）
-            # 重新排列为(x, y, z)格式以匹配skeleton
+            # 3. Coordinate transformation (following analyze_alignment.py logic exactly)
+            # Rearrange to (x, y, z) format to match skeleton
             spots_nm_xyz = spots_coords[:, [1, 0, 2]]  # from (y, x, z) to (x, y, z)
             
-            # 转换为微米单位
+            # Convert to micrometer units
             spots_um_xyz = spots_nm_xyz / 1000.0
             
-            print(f"转换后spots坐标范围: X=[{spots_um_xyz[:,0].min():.3f}, {spots_um_xyz[:,0].max():.3f}], Y=[{spots_um_xyz[:,1].min():.3f}, {spots_um_xyz[:,1].max():.3f}], Z=[{spots_um_xyz[:,2].min():.3f}, {spots_um_xyz[:,2].max():.3f}]")
+            print(f"Converted spots coordinate range: X=[{spots_um_xyz[:,0].min():.3f}, {spots_um_xyz[:,0].max():.3f}], Y=[{spots_um_xyz[:,1].min():.3f}, {spots_um_xyz[:,1].max():.3f}], Z=[{spots_um_xyz[:,2].min():.3f}, {spots_um_xyz[:,2].max():.3f}]")
             
-            # 4. 中心校正分析（完全复制analyze_alignment.py的逻辑）
             skeleton_center = np.mean(skeleton_coords, axis=0)
             spots_center = np.mean(spots_um_xyz, axis=0)
             center_diff = skeleton_center - spots_center
             center_distance = np.linalg.norm(center_diff)
             
-            print(f"中心校正分析:")
-            print(f"  Skeleton中心: X={skeleton_center[0]:.3f}, Y={skeleton_center[1]:.3f}, Z={skeleton_center[2]:.3f}")
-            print(f"  Spots中心: X={spots_center[0]:.3f}, Y={spots_center[1]:.3f}, Z={spots_center[2]:.3f}")
-            print(f"  中心距离: {center_distance:.3f}μm")
+            print(f"Center correction analysis:")
+            print(f"  Skeleton center: X={skeleton_center[0]:.3f}, Y={skeleton_center[1]:.3f}, Z={skeleton_center[2]:.3f}")
+            print(f"  Spots center: X={spots_center[0]:.3f}, Y={spots_center[1]:.3f}, Z={spots_center[2]:.3f}")
+            print(f"  Center distance: {center_distance:.3f}μm")
             
-            # 应用中心校正
+            # Apply center correction
             spots_corrected = spots_um_xyz - center_diff
             
-            # 保存两个版本的数据以匹配analyze_alignment.py的行为
-            self.spots_before_correction = spots_um_xyz.copy()  # 中心校正前（用于图表显示，匹配analyze_alignment.py）
-            self.spots_after_correction = spots_corrected.copy()  # 中心校正后（用于最终统计）
+            # Save two versions of data to match analyze_alignment.py behavior
+            self.spots_before_correction = spots_um_xyz.copy()  # Before center correction (for chart display, matching analyze_alignment.py)
+            self.spots_after_correction = spots_corrected.copy()  # After center correction (for final statistics)
             
-            # 默认使用中心校正前的数据进行可视化（与analyze_alignment.py的图表一致）
+            # Use pre-correction data by default for visualization (consistent with analyze_alignment.py charts)
             self.current_spots = self.spots_before_correction.copy()
             self.original_spots = self.spots_before_correction.copy()
             self.current_skeleton = skeleton_coords.copy()
             self.original_skeleton = skeleton_coords.copy()
             
-            print(f"校正前spots坐标范围（用于可视化）: X=[{self.current_spots[:,0].min():.3f}, {self.current_spots[:,0].max():.3f}], Y=[{self.current_spots[:,1].min():.3f}, {self.current_spots[:,1].max():.3f}], Z=[{self.current_spots[:,2].min():.3f}, {self.current_spots[:,2].max():.3f}]")
-            print(f"校正后spots坐标范围: X=[{spots_corrected[:,0].min():.3f}, {spots_corrected[:,0].max():.3f}], Y=[{spots_corrected[:,1].min():.3f}, {spots_corrected[:,1].max():.3f}], Z=[{spots_corrected[:,2].min():.3f}, {spots_corrected[:,2].max():.3f}]")
+            print(f"Spots range before correction (for visualization): X=[{self.current_spots[:,0].min():.3f}, {self.current_spots[:,0].max():.3f}], Y=[{self.current_spots[:,1].min():.3f}, {self.current_spots[:,1].max():.3f}], Z=[{self.current_spots[:,2].min():.3f}, {self.current_spots[:,2].max():.3f}]")
+            print(f"Spots range after correction: X=[{spots_corrected[:,0].min():.3f}, {spots_corrected[:,0].max():.3f}], Y=[{spots_corrected[:,1].min():.3f}, {spots_corrected[:,1].max():.3f}], Z=[{spots_corrected[:,2].min():.3f}, {spots_corrected[:,2].max():.3f}]")
             
-            # 更新窗口标题
+            # Update window title
             self.root.title(f"Interactive 3D Cell Batch Visualization (Fixed) - {image_name} - {cell_name}")
             
             print(f"Successfully loaded {image_name}-{cell_name} data:")
             print(f"  Spots count: {len(self.original_spots)}")
             print(f"  Skeleton points count: {len(self.original_skeleton)}")
             
-            # 重置旋转
+            # Reset rotation
             self.reset_rotation()
             
         except Exception as e:
@@ -463,7 +463,7 @@ class Interactive3DBatchVisualizerFixed:
         rotation_frame = ttk.LabelFrame(parent, text="Skeleton Rotation", padding=10)
         rotation_frame.pack(fill=tk.X, pady=(0, 15))
         
-        # X轴旋转
+        # X-axis rotation
         x_frame = ttk.Frame(rotation_frame)
         x_frame.pack(fill=tk.X, pady=2)
         ttk.Label(x_frame, text="X-axis:", width=6).pack(side=tk.LEFT)
@@ -472,7 +472,7 @@ class Interactive3DBatchVisualizerFixed:
         self.x_value_label = ttk.Label(x_frame, text="0°", width=6)
         self.x_value_label.pack(side=tk.RIGHT)
         
-        # Y轴旋转
+        # Y-axis rotation
         y_frame = ttk.Frame(rotation_frame)
         y_frame.pack(fill=tk.X, pady=2)
         ttk.Label(y_frame, text="Y-axis:", width=6).pack(side=tk.LEFT)
@@ -481,7 +481,7 @@ class Interactive3DBatchVisualizerFixed:
         self.y_value_label = ttk.Label(y_frame, text="0°", width=6)
         self.y_value_label.pack(side=tk.RIGHT)
         
-        # Z轴旋转
+        # Z-axis rotation
         z_frame = ttk.Frame(rotation_frame)
         z_frame.pack(fill=tk.X, pady=2)
         ttk.Label(z_frame, text="Z-axis:", width=6).pack(side=tk.LEFT)
@@ -621,8 +621,8 @@ class Interactive3DBatchVisualizerFixed:
 
     def calculate_distances_analyze_method(self):
         """
-        完全复制analyze_alignment.py中calculate_alignment_after_correction的距离计算方法
-        使用中心校正前的数据和采样，以匹配analyze_alignment.py的图表
+        Calculate distances using all skeleton points (no sampling) for accurate distance calculation
+        Use center-uncorrected data for visualization consistency
         """
         if not hasattr(self, 'spots_before_correction') or self.current_skeleton is None:
             return np.array([])
@@ -633,24 +633,23 @@ class Interactive3DBatchVisualizerFixed:
         if len(spots_coords_um) == 0 or len(skeleton_coords) == 0:
             return np.array([])
         
-        # 采样逻辑（完全复制analyze_alignment.py）
-        if len(skeleton_coords) > 1000:
-            skeleton_sample = skeleton_coords[::len(skeleton_coords)//1000]
-        else:
-            skeleton_sample = skeleton_coords
-        
+        # Use all skeleton points for accurate distance calculation
+        # Only sample spots if too many to avoid memory issues
         if len(spots_coords_um) > 500:
             spots_sample = spots_coords_um[::len(spots_coords_um)//500]
         else:
             spots_sample = spots_coords_um
         
-        distances = cdist(spots_sample, skeleton_sample)
+        print(f"Distance calculation: Using {len(spots_sample)} spots and {len(skeleton_coords)} skeleton points")
+        
+        distances = cdist(spots_sample, skeleton_coords)
         min_distances = np.min(distances, axis=1)
         return min_distances
 
     def calculate_final_distances(self):
         """
-        计算最终对齐统计（使用中心校正后的数据）
+        Calculate final alignment statistics using all skeleton points for accuracy
+        Use center-corrected data for final statistics
         """
         if not hasattr(self, 'spots_after_correction') or self.current_skeleton is None:
             return np.array([])
@@ -661,17 +660,19 @@ class Interactive3DBatchVisualizerFixed:
         if len(spots_corrected) == 0 or len(skeleton_coords) == 0:
             return np.array([])
         
-        # 使用和analyze_alignment.py相同的采样策略
+        # Use all skeleton points for accurate distance calculation
+        # Only sample spots if too many to avoid memory issues
         spots_sample = spots_corrected[:500] if len(spots_corrected) > 500 else spots_corrected
-        skeleton_sample = skeleton_coords[:1000] if len(skeleton_coords) > 1000 else skeleton_coords
         
-        distances = cdist(spots_sample, skeleton_sample)
+        print(f"Final distance calculation: Using {len(spots_sample)} spots and {len(skeleton_coords)} skeleton points")
+        
+        distances = cdist(spots_sample, skeleton_coords)
         min_distances = np.min(distances, axis=1)
         return min_distances
 
     def calculate_and_show_results(self):
         if self.current_spots is None or self.current_skeleton is None:
-            messagebox.showwarning("Warning", "请先选择一个细胞")
+            messagebox.showwarning("Warning", "Please select a cell first")
             return
         
         # 计算两种距离（匹配analyze_alignment.py的行为）
@@ -679,22 +680,22 @@ class Interactive3DBatchVisualizerFixed:
         self.final_distances = self.calculate_final_distances()      # 用于最终统计
         
         if len(self.distances) == 0:
-            messagebox.showwarning("Warning", "无法计算距离，请检查数据")
+            messagebox.showwarning("Warning", "Cannot calculate distances, please check data")
             return
             
         self.create_result_window()
         
-        print(f"{self.current_image} - {self.current_cell} 计算完成:")
-        print(f"  图表显示距离（中心校正前）:")
-        print(f"    平均距离: {np.mean(self.distances):.3f} μm")
-        print(f"    中位数距离: {np.median(self.distances):.3f} μm")
-        print(f"    标准差: {np.std(self.distances):.3f} μm")
+        print(f"{self.current_image} - {self.current_cell} calculated:")
+        print(f"  Graph distance (pre-correction):")
+        print(f"    Mean distance: {np.mean(self.distances):.3f} μm")
+        print(f"    Median distance: {np.median(self.distances):.3f} μm")
+        print(f"    Standard deviation: {np.std(self.distances):.3f} μm")
         
         if len(self.final_distances) > 0:
-            print(f"  最终对齐统计（中心校正后）:")
-            print(f"    平均距离: {np.mean(self.final_distances):.3f} μm")
-            print(f"    中位数距离: {np.median(self.final_distances):.3f} μm")
-            print(f"    标准差: {np.std(self.final_distances):.3f} μm")
+            print(f"  Final alignment statistics (post-correction):")
+            print(f"    Mean distance: {np.mean(self.final_distances):.3f} μm")
+            print(f"    Median distance: {np.median(self.final_distances):.3f} μm")
+            print(f"    Standard deviation: {np.std(self.final_distances):.3f} μm")
 
     def create_result_window(self):
         result_window = tk.Toplevel(self.root)
@@ -780,16 +781,16 @@ class Interactive3DBatchVisualizerFixed:
         if len(self.distances) > 0:
             ax.legend()
             
-            # 显示图表数据统计（中心校正前，匹配analyze_alignment.py图表）
+            # Display chart data statistics (pre-correction, matches analyze_alignment.py chart)
             stats_text = f"""Graph Statistics (Pre-Correction):
-Count: {len(self.distances)}
-Mean: {np.mean(self.distances):.3f} μm
-Median: {np.median(self.distances):.3f} μm
-Std: {np.std(self.distances):.3f} μm
-Min: {np.min(self.distances):.3f} μm
-Max: {np.max(self.distances):.3f} μm"""
+    Count: {len(self.distances)}
+    Mean: {np.mean(self.distances):.3f} μm
+    Median: {np.median(self.distances):.3f} μm
+    Std: {np.std(self.distances):.3f} μm
+    Min: {np.min(self.distances):.3f} μm
+    Max: {np.max(self.distances):.3f} μm"""
 
-            # 如果有最终统计数据，也显示
+            # If there are final statistics, also display
             if hasattr(self, 'final_distances') and len(self.final_distances) > 0:
                 stats_text += f"""
 
@@ -803,7 +804,7 @@ Std: {np.std(self.final_distances):.3f} μm"""
 
 Transform: {flip_status if flip_status else 'Original'}
 Rotation: X={self.rotation_x.get():.0f}° Y={self.rotation_y.get():.0f}° Z={self.rotation_z.get():.0f}°
-Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
+Note: Uses ALL skeleton points (no sampling) for accurate distance calculation"""
             
             ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, verticalalignment='top',
                    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8), fontsize=9)
@@ -861,10 +862,10 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
 
     def save_results(self):
         if not hasattr(self, 'distances') or len(self.distances) == 0:
-            messagebox.showwarning("Warning", "没有结果可保存，请先计算距离分析")
+            messagebox.showwarning("Warning", "No results to save, please calculate distance analysis first")
             return
         if not self.current_cell or not self.current_image:
-            messagebox.showwarning("Warning", "没有选择细胞或图像")
+            messagebox.showwarning("Warning", "No cell or image selected")
             return
         
         try:
@@ -887,7 +888,7 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
                 'image_name': self.current_image,
                 'cell_name': self.current_cell
             })
-            detail_file = os.path.join(output_dir, f'{self.current_image}_{self.current_cell}_interactive_analysis_fixed.csv')
+            detail_file = os.path.join(output_dir, f'{self.current_image}_{self.current_cell}_interactive_analysis_{self.skeleton_type}.csv')
             detail_data.to_csv(detail_file, index=False)
             
             # 保存skeleton数据
@@ -896,7 +897,7 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
                 'skeleton_y_um': self.current_skeleton[:, 1],
                 'skeleton_z_um': self.current_skeleton[:, 2],
             })
-            skeleton_file = os.path.join(output_dir, f'{self.current_image}_{self.current_cell}_rotated_skeleton_fixed.csv')
+            skeleton_file = os.path.join(output_dir, f'{self.current_image}_{self.current_cell}_rotated_skeleton_{self.skeleton_type}.csv')
             skeleton_data.to_csv(skeleton_file, index=False)
             
             # 保存摘要
@@ -930,23 +931,23 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
                 })
             
             summary_df = pd.DataFrame([summary_data])
-            summary_file = os.path.join(output_dir, f'{self.current_image}_{self.current_cell}_summary_fixed.csv')
+            summary_file = os.path.join(output_dir, f'{self.current_image}_{self.current_cell}_summary_{self.skeleton_type}.csv')
             summary_df.to_csv(summary_file, index=False)
             
-            messagebox.showinfo("Success", f"结果已保存到:\n{output_dir}")
+            messagebox.showinfo("Success", f"Results saved to:\n{output_dir}")
         except Exception as e:
-            messagebox.showerror("Error", f"保存失败: {str(e)}")
+            messagebox.showerror("Error", f"Save failed: {str(e)}")
 
     def batch_distance_analysis(self):
-        """批量分析所有图像和细胞的距离分布，使用修复后的正确坐标转换方法"""
-        threshold = simpledialog.askfloat("阈值输入", "请输入距离阈值 (μm):", minvalue=0.0, initialvalue=0.6)
+        """Batch analyze distance distribution of all images and cells using the fixed correct coordinate transformation method"""
+        threshold = simpledialog.askfloat("Threshold Input", "Please enter distance threshold (μm):", minvalue=0.0, initialvalue=0.6)
         if threshold is None:
             return
         
         # 创建进度条窗口
         progress_win = tk.Toplevel(self.root)
-        progress_win.title("批量分析进度")
-        progress_label = ttk.Label(progress_win, text="分析中...")
+        progress_win.title("Batch Distance Analysis")
+        progress_label = ttk.Label(progress_win, text="Analyzing...")
         progress_label.pack(padx=20, pady=10)
         progress_var = tk.DoubleVar()
         progress_bar = ttk.Progressbar(progress_win, variable=progress_var, maximum=1.0, length=300)
@@ -1018,10 +1019,9 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
                                 skeleton = translation_result['optimal_skeleton']
                                 skeleton_translation = translation_result['translation']
                             
-                            # 计算距离（使用采样）
-                            skeleton_sample = skeleton[:1000] if len(skeleton) > 1000 else skeleton
+                            # 计算距离（使用所有skeleton点）
                             spots_sample = spots[:500] if len(spots) > 500 else spots
-                            distances = cdist(spots_sample, skeleton_sample)
+                            distances = cdist(spots_sample, skeleton)
                             min_distances = np.min(distances, axis=1)
                             mean_dist = np.mean(min_distances)
                             
@@ -1082,9 +1082,8 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
                             skeleton = translation_result['optimal_skeleton']
                             skeleton_translation = translation_result['translation']
                         
-                        skeleton_sample = skeleton[:1000] if len(skeleton) > 1000 else skeleton
                         spots_sample = spots[:500] if len(spots) > 500 else spots
-                        distances = cdist(spots_sample, skeleton_sample)
+                        distances = cdist(spots_sample, skeleton)
                         min_distances = np.min(distances, axis=1)
                     
                     # 统计结果
@@ -1142,17 +1141,17 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
         os.makedirs(output_dir, exist_ok=True)
         
         dist_df = pd.DataFrame({'distance': all_distances})
-        dist_df.to_csv(os.path.join(output_dir, f'{self.channel}_all_cells_distances_fixed.csv'), index=False)
+        dist_df.to_csv(os.path.join(output_dir, f'{self.channel}_all_cells_distances_{self.skeleton_type}.csv'), index=False)
         
         summary_df = pd.DataFrame(summary_rows)
-        summary_df.to_csv(os.path.join(output_dir, f'{self.channel}_all_cells_summary_fixed.csv'), index=False)
+        summary_df.to_csv(os.path.join(output_dir, f'{self.channel}_all_cells_summary_{self.skeleton_type}.csv'), index=False)
         
         if all_spots_details:
             spots_details_df = pd.DataFrame(all_spots_details)
-            spots_details_df.to_csv(os.path.join(output_dir, f'{self.channel}_all_spots_details_fixed.csv'), index=False)
+            spots_details_df.to_csv(os.path.join(output_dir, f'{self.channel}_all_spots_details_{self.skeleton_type}.csv'), index=False)
             
             exceeds_threshold_df = spots_details_df[spots_details_df['exceeds_threshold'] == True]
-            exceeds_threshold_df.to_csv(os.path.join(output_dir, f'{self.channel}_spots_exceed_threshold_{threshold}_fixed.csv'), index=False)
+            exceeds_threshold_df.to_csv(os.path.join(output_dir, f'{self.channel}_spots_exceed_threshold_{threshold}_{self.skeleton_type}.csv'), index=False)
         
         # 绘制聚合直方图和箱线图
         if not dist_df.empty:
@@ -1166,7 +1165,7 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
             n, bins, patches = plt.hist(dist_df['distance'], bins=30, color='skyblue', edgecolor='black', alpha=0.7)
             plt.xlabel('Distance to skeleton (μm)')
             plt.ylabel('Number of molecules')
-            plt.title(f'{self.channel.upper()} - All Cells Distance Distribution (Fixed Method) (N={len(dist_df)})')
+            plt.title(f'{self.channel.upper()} - All Cells Distance Distribution (N={len(dist_df)})')
             plt.axvline(mean_val, color='red', linestyle='--', label=f'Mean: {mean_val:.2f}')
             plt.axvline(median_val, color='orange', linestyle='--', label=f'Median: {median_val:.2f}')
             plt.axvline(threshold, color='purple', linestyle='-', label=f'Threshold: {threshold:.2f}')
@@ -1175,45 +1174,43 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
                      bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.7))
             plt.legend()
             plt.tight_layout()
-            plt.savefig(os.path.join(output_dir, f'{self.channel}_all_cells_histogram_fixed.png'))
+            plt.savefig(os.path.join(output_dir, f'{self.channel}_all_cells_histogram_{self.skeleton_type}.png'))
             plt.close()
             
             plt.figure(figsize=(8, 6))
             plt.boxplot(dist_df['distance'], vert=True, patch_artist=True, boxprops=dict(facecolor='lightgreen'))
             plt.ylabel('Distance to skeleton (μm)')
-            plt.title(f'{self.channel.upper()} - All Cells Distance Boxplot (Fixed Method) (N={len(dist_df)})')
+            plt.title(f'{self.channel.upper()} - All Cells Distance Boxplot ({self.skeleton_type}) (N={len(dist_df)})')
             plt.axhline(threshold, color='purple', linestyle='-', label=f'Threshold: {threshold:.2f}')
             plt.text(1.05, threshold, f'Ratio < threshold: {below_ratio*100:.1f}%\nNumber of cells: {cell_count}\nMean spots per cell: {mean_spots_per_cell:.1f}',
                      transform=plt.gca().get_yaxis_transform(which='grid'), ha='left', va='center', fontsize=12,
                      bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.7))
             plt.legend()
             plt.tight_layout()
-            plt.savefig(os.path.join(output_dir, f'{self.channel}_all_cells_boxplot_fixed.png'))
+            plt.savefig(os.path.join(output_dir, f'{self.channel}_all_cells_boxplot_{self.skeleton_type}.png'))
             plt.close()
         
         progress_win.destroy()
         exceed_count = len(exceeds_threshold_df) if 'exceeds_threshold_df' in locals() else 0
         total_spots = len(all_spots_details) if all_spots_details else 0
-        messagebox.showinfo("批量分析完成", f"所有细胞的距离分布直方图和箱线图已保存到:\n{output_dir}\n\n总spots: {total_spots}\n超出阈值 {threshold} μm的spots: {exceed_count}")
+        messagebox.showinfo("Batch Analysis Completed", f"Distance distribution histogram and boxplot for all cells saved to:\n{output_dir}\n\nTotal spots: {total_spots}\nSpots exceeding threshold {threshold} μm: {exceed_count}")
 
     def analyse_outliers(self):
-        """分析outliers并在新窗口中显示包含outliers的图像和细胞"""
-        # 询问阈值
-        threshold = simpledialog.askfloat("Outlier阈值输入", "请输入outlier距离阈值 (μm)：", minvalue=0.0, initialvalue=0.6)
+        """Analyze outliers and display images and cells containing outliers in a new window"""
+        # Ask for threshold
+        threshold = simpledialog.askfloat("Outlier Threshold Input", "Please enter outlier distance threshold (μm):", minvalue=0.0, initialvalue=0.6)
         if threshold is None:
             return
         
-        # 创建进度条窗口
         progress_win = tk.Toplevel(self.root)
         progress_win.title("Analyse Outliers Progress")
-        progress_label = ttk.Label(progress_win, text="分析outliers中...")
+        progress_label = ttk.Label(progress_win, text="Analyzing outliers...")
         progress_label.pack(padx=20, pady=10)
         progress_var = tk.DoubleVar()
         progress_bar = ttk.Progressbar(progress_win, variable=progress_var, maximum=1.0, length=300)
         progress_bar.pack(padx=20, pady=10)
         self.root.update()
         
-        # 查找有outliers的图像和细胞
         outlier_images = {}  # {image_name: {cell_name: outlier_info}}
         total = sum(len(cells) for cells in self.available_images.values())
         done = 0
@@ -1221,13 +1218,11 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
         for image_name, cells in self.available_images.items():
             for cell_name, cell_info in cells.items():
                 try:
-                    # 获取细胞编号和映射数据
                     cell_number = int(cell_name.split("_")[1])
                     cell_id_str = f"{cell_number:03d}"
                     mapping_cell_name = f'cell_{cell_id_str}'
                     mapping_data = self.coordinate_mappings.get(image_name, {})
                     
-                    # 使用正确的方法加载数据
                     spots_coords, pixel_xy, pixel_z = self.load_spots_fishquant_analyze_method(
                         cell_info['spots_file'], 
                         cell_number=cell_number, 
@@ -1244,20 +1239,17 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
                         silent=True
                     )
                     
-                    # 坐标转换
                     spots_nm_xyz = spots_coords[:, [1, 0, 2]]
                     spots_um_xyz = spots_nm_xyz / 1000.0
                     
-                    # 中心校正
                     skeleton_center = np.mean(skeleton_coords, axis=0)
                     spots_center = np.mean(spots_um_xyz, axis=0)
                     center_diff = skeleton_center - spots_center
                     spots_corrected = spots_um_xyz - center_diff
                     
-                    spots = spots_um_xyz  # 使用中心校正前的数据进行可视化
+                    spots = spots_um_xyz 
                     skeleton = skeleton_coords
                     
-                    # 应用自动平移优化（如果启用）
                     skeleton_translation = np.array([0, 0, 0])
                     if self.auto_translate_skeleton.get():
                         translation_result = self.optimize_skeleton_translation(spots, skeleton)
@@ -1267,7 +1259,6 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
                     distances = cdist(spots, skeleton)
                     min_distances = np.min(distances, axis=1)
                     
-                    # 检查是否有outliers
                     outlier_indices = np.where(min_distances >= threshold)[0]
                     if len(outlier_indices) > 0:
                         outlier_images[image_name] = outlier_images.get(image_name, {})
@@ -1282,7 +1273,6 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
                         }
                 
                 except Exception as e:
-                    # 静默跳过无法处理的细胞（例如未找到spots数据）
                     pass
                 
                 done += 1
@@ -1292,37 +1282,30 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
         progress_win.destroy()
         
         if not outlier_images:
-            messagebox.showinfo("分析结果", f"没有找到超出阈值 {threshold} μm 的outliers")
+            messagebox.showinfo("Analysis Results", f"No outliers found exceeding threshold {threshold} μm")
             return
         
-        # 统计信息
         total_outlier_cells = sum(len(cells) for cells in outlier_images.values())
         total_outliers = sum(len(cell_data['outlier_indices']) for image_cells in outlier_images.values() 
                            for cell_data in image_cells.values())
         
-        # 创建outlier分析窗口
         self.create_outlier_analysis_window(outlier_images, threshold, total_outlier_cells, total_outliers)
 
     def create_outlier_analysis_window(self, outlier_images, threshold, total_outlier_cells, total_outliers):
-        """创建outlier分析窗口"""
         outlier_window = tk.Toplevel(self.root)
         outlier_window.title(f"Outlier Analysis (Fixed Method) - Threshold: {threshold} μm")
         outlier_window.geometry("1500x950")
         
-        # 创建主框架
         main_frame = ttk.Frame(outlier_window)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        # 控制面板
         control_frame = ttk.Frame(main_frame)
         control_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
         
-        # 标题
         title_label = ttk.Label(control_frame, text=f"Outlier Analysis (Fixed)\nThreshold: {threshold} μm", 
                                font=('Arial', 14, 'bold'))
         title_label.pack(pady=(0, 20))
         
-        # 统计信息
         stats_frame = ttk.LabelFrame(control_frame, text="Statistics", padding=10)
         stats_frame.pack(fill=tk.X, pady=(0, 15))
         
@@ -1330,7 +1313,6 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
         stats_label = ttk.Label(stats_frame, text=stats_text, font=('Arial', 10))
         stats_label.pack(anchor=tk.W)
         
-        # 图像选择
         image_frame = ttk.LabelFrame(control_frame, text="Image Selection", padding=10)
         image_frame.pack(fill=tk.X, pady=(0, 15))
         
@@ -1340,7 +1322,6 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
                                   values=list(outlier_images.keys()), state="readonly", width=20)
         image_combo.pack(fill=tk.X, pady=5)
         
-        # 细胞选择
         cell_frame = ttk.LabelFrame(control_frame, text="Cell Selection", padding=10)
         cell_frame.pack(fill=tk.X, pady=(0, 15))
         
@@ -1350,11 +1331,9 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
                                  values=[], state="readonly", width=15)
         cell_combo.pack(fill=tk.X, pady=5)
         
-        # 细胞信息标签
         cell_info_label = ttk.Label(cell_frame, text="", font=('Arial', 9))
         cell_info_label.pack(anchor=tk.W, pady=(5, 0))
         
-        # 3D图形
         plot_frame = ttk.Frame(main_frame)
         plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         
@@ -1364,7 +1343,6 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
         outlier_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         
         def update_outlier_cell_selection(event=None):
-            """更新细胞选择下拉框"""
             image_name = outlier_selected_image.get()
             if image_name and image_name in outlier_images:
                 cell_names = list(outlier_images[image_name].keys())
@@ -1374,7 +1352,6 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
                     update_outlier_plot()
         
         def update_outlier_plot(event=None):
-            """更新outlier 3D图"""
             image_name = outlier_selected_image.get()
             cell_name = outlier_selected_cell.get()
             
@@ -1390,20 +1367,17 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
             
             outlier_ax.clear()
             
-            # 绘制normal spots (蓝色)
             normal_indices = np.where(distances < threshold_val)[0]
             if len(normal_indices) > 0:
                 normal_spots = spots[normal_indices]
                 outlier_ax.scatter(normal_spots[:, 0], normal_spots[:, 1], normal_spots[:, 2], 
                                  c='blue', s=30, alpha=0.6, label=f'Normal spots ({len(normal_indices)})')
             
-            # 绘制outlier spots (红色)
             if len(outlier_indices) > 0:
                 outlier_spots = spots[outlier_indices]
                 outlier_ax.scatter(outlier_spots[:, 0], outlier_spots[:, 1], outlier_spots[:, 2], 
                                  c='red', s=50, alpha=0.8, label=f'Outlier spots ({len(outlier_indices)})')
             
-            # 绘制skeleton (灰色)
             if len(skeleton) > 0:
                 outlier_ax.scatter(skeleton[:, 0], skeleton[:, 1], skeleton[:, 2], 
                                  c='gray', s=10, alpha=0.5, label=f'Skeleton ({len(skeleton)})')
@@ -1421,7 +1395,6 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
             outlier_ax.set_title(f'{self.channel.upper()} - {image_name} - {cell_name} - Outlier Analysis (Fixed){flip_status}\nThreshold: {threshold_val} μm')
             outlier_ax.legend()
             
-            # 设置等比例
             if len(spots) > 0:
                 all_points = np.vstack([spots, skeleton])
                 x_range = all_points[:, 0].max() - all_points[:, 0].min()
@@ -1437,7 +1410,6 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
             
             outlier_canvas.draw()
             
-            # 更新细胞信息
             total_spots = len(spots)
             outlier_count = len(outlier_indices)
             normal_count = len(normal_indices)
@@ -1446,22 +1418,18 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
             info_text = f"Total: {total_spots}, Normal: {normal_count}, Outliers: {outlier_count} ({outlier_ratio:.1f}%)"
             cell_info_label.config(text=info_text)
         
-        # 绑定事件
         image_combo.bind('<<ComboboxSelected>>', update_outlier_cell_selection)
         cell_combo.bind('<<ComboboxSelected>>', update_outlier_plot)
-        
-        # 自动选择第一个图像和细胞
+
         if outlier_images:
             first_image = list(outlier_images.keys())[0]
             outlier_selected_image.set(first_image)
             update_outlier_cell_selection()
         
-        # 操作按钮
         action_frame = ttk.LabelFrame(control_frame, text="Actions", padding=10)
         action_frame.pack(fill=tk.X, pady=(15, 0))
         
         def save_outlier_details():
-            """保存所有outlier详细信息到CSV"""
             outlier_details = []
             for image_name, image_cells in outlier_images.items():
                 for cell_name, cell_data in image_cells.items():
@@ -1491,11 +1459,10 @@ Note: Graph shows pre-correction data (matches analyze_alignment.py)"""
                 output_dir = os.path.join(self.base_dir, 'interactive_batch_results')
                 os.makedirs(output_dir, exist_ok=True)
                 outlier_df = pd.DataFrame(outlier_details)
-                outlier_file = os.path.join(output_dir, f'{self.channel}_outlier_analysis_{threshold}_fixed.csv')
+                outlier_file = os.path.join(output_dir, f'{self.channel}_outlier_analysis_{threshold}_{self.skeleton_type}.csv')
                 outlier_df.to_csv(outlier_file, index=False)
-                messagebox.showinfo("保存成功", f"Outlier详细信息已保存到:\n{outlier_file}")
+                messagebox.showinfo("Save Successful", f"Outlier detailed information saved to:\n{outlier_file}")
         
-        # 添加按钮
         save_all_btn = ttk.Button(action_frame, text="Save All Outlier Details", command=save_outlier_details)
         save_all_btn.pack(fill=tk.X, pady=2)
 

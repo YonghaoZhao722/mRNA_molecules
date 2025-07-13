@@ -90,9 +90,30 @@ int ScanFolderForThisExtension(std::string _impath, std::string ext, std::vector
 // in [0,255] (http://rsbweb.nih.gov/ij/docs/guide/146-28.html)
 vtkSmartPointer<vtkImageData> Convert16To8bit(vtkSmartPointer<vtkImageData> Image);
 
+// Z-adaptive version that normalizes each z-plane independently
+vtkSmartPointer<vtkImageData> Convert16To8bitZAdaptive(vtkSmartPointer<vtkImageData> Image);
+
+// Z-block adaptive version that normalizes z-planes in blocks
+vtkSmartPointer<vtkImageData> Convert16To8bitZAdaptiveBlocks(vtkSmartPointer<vtkImageData> Image, int block_size);
+
+// Gentle z-adaptive version that preserves 3D continuity while enhancing dimmer areas
+vtkSmartPointer<vtkImageData> Convert16To8bitZAdaptiveGentle(vtkSmartPointer<vtkImageData> Image, int block_size);
+
 // Apply a threshold to a ImageData and converts the result in
 // a 8-bit ImageData.
 vtkSmartPointer<vtkImageData> BinarizeAndConvertDoubleToChar(vtkSmartPointer<vtkImageData> Image, double threshold);
+
+// Z-adaptive version that calculates different thresholds for each z-plane
+vtkSmartPointer<vtkImageData> BinarizeAndConvertDoubleToCharZAdaptive(vtkSmartPointer<vtkImageData> Image, double base_threshold);
+
+// Conservative z-adaptive version that uses blocks to reduce noise
+vtkSmartPointer<vtkImageData> BinarizeAndConvertDoubleToCharZAdaptiveConservative(vtkSmartPointer<vtkImageData> Image, double base_threshold, int z_block_size);
+
+// Enhance structural connectivity before binarization
+vtkSmartPointer<vtkImageData> EnhanceStructuralConnectivity(vtkSmartPointer<vtkImageData> Image, double sigma);
+
+// Connect fragmented skeleton segments
+vtkSmartPointer<vtkPolyData> ConnectSkeletonFragments(vtkSmartPointer<vtkPolyData> Skeleton, double max_gap_distance);
 
 // Fill holes in the 3D image
 void FillHoles(vtkSmartPointer<vtkImageData> ImageData);
@@ -296,7 +317,8 @@ void ExportMaxProjection(vtkSmartPointer<vtkImageData> Image, const char FileNam
                 v = Image -> GetScalarComponentAsFloat(x,y,z,0);
                 vproj = (v > vproj) ? v : vproj;
             }
-            MaxPArray -> SetTuple1(MaxP->FindPoint(x,y,0),(unsigned char)vproj);
+            double point[3] = {(double)x, (double)y, 0.0};
+            MaxPArray -> SetTuple1(MaxP->FindPoint(point),(unsigned char)vproj);
         }
     }
     MaxPArray -> Modified();
@@ -412,7 +434,8 @@ void ExportDetailedMaxProjection(_mitoObject *mitoObject) {
                     v = Image -> GetScalarComponentAsFloat(x,y,z,0);
                     vproj = (v > vproj) ? v : vproj;
                 }
-                MaxPArray -> SetTuple1(Plane->FindPoint(x+2*Dim[0],y,0),(unsigned char)vproj);
+                double point[3] = {(double)(x+2*Dim[0]), (double)y, 0.0};
+                MaxPArray -> SetTuple1(Plane->FindPoint(point),(unsigned char)vproj);
             }
         }
         //Max Projection top
@@ -423,7 +446,8 @@ void ExportDetailedMaxProjection(_mitoObject *mitoObject) {
                     v = Image -> GetScalarComponentAsFloat(x,y,z,0);
                     vproj = (v > vproj) ? v : vproj;
                 }
-                MaxPArray -> SetTuple1(Plane->FindPoint(x+2*Dim[0],y+Dim[1],0),(unsigned char)vproj);
+                double point[3] = {(double)(x+2*Dim[0]), (double)(y+Dim[1]), 0.0};
+                MaxPArray -> SetTuple1(Plane->FindPoint(point),(unsigned char)vproj);
             }
         }
 
@@ -435,10 +459,12 @@ void ExportDetailedMaxProjection(_mitoObject *mitoObject) {
             y = round(r[1]/_dxy);
             z = round(r[2]/_dz);
             if ( z >= zi && z <= zi+8 ) {
-                MaxPArray -> SetTuple1(Plane->FindPoint(x+3*Dim[0],y,0),255);
+                double point[3] = {(double)(x+3*Dim[0]), (double)y, 0.0};
+                MaxPArray -> SetTuple1(Plane->FindPoint(point),255);
             }
             if ( z >= zf-8 && z <= zf ) {
-                MaxPArray -> SetTuple1(Plane->FindPoint(x+3*Dim[0],y+Dim[1],0),255);
+                double point2[3] = {(double)(x+3*Dim[0]), (double)(y+Dim[1]), 0.0};
+                MaxPArray -> SetTuple1(Plane->FindPoint(point2),255);
             }
         }
 
@@ -448,7 +474,8 @@ void ExportDetailedMaxProjection(_mitoObject *mitoObject) {
             x = round(r[0]/_dxy);
             y = round(r[1]/_dxy);
             z = round(r[2]/_dz);
-            MaxPArray -> SetTuple1(Plane->FindPoint(x,y,0),255);
+            double point[3] = {(double)x, (double)y, 0.0};
+            MaxPArray -> SetTuple1(Plane->FindPoint(point),255);
         }
 
         // Partial skeleton Projection
@@ -458,10 +485,12 @@ void ExportDetailedMaxProjection(_mitoObject *mitoObject) {
             y = round(r[1]/_dxy);
             z = round(r[2]/_dz);
             if ( z >= zi && z <= zi+8 ) {
-                MaxPArray -> SetTuple1(Plane->FindPoint(x+4*Dim[0],y,0),255);
+                double point[3] = {(double)(x+4*Dim[0]), (double)y, 0.0};
+                MaxPArray -> SetTuple1(Plane->FindPoint(point),255);
             }
             if ( z >= zf-8 && z <= zf ) {
-                MaxPArray -> SetTuple1(Plane->FindPoint(x+4*Dim[0],y+Dim[1],0),255);
+                double point2[3] = {(double)(x+4*Dim[0]), (double)(y+Dim[1]), 0.0};
+                MaxPArray -> SetTuple1(Plane->FindPoint(point2),255);
             }
         }
 
@@ -473,7 +502,8 @@ void ExportDetailedMaxProjection(_mitoObject *mitoObject) {
                     v = Image -> GetScalarComponentAsFloat(x,y,z,0);
                     vproj = (v > vproj) ? v : vproj;
                 }
-                MaxPArray -> SetTuple1(Plane->FindPoint(x,y+Dim[1],0),(unsigned char)vproj);
+                double point[3] = {(double)x, (double)(y+Dim[1]), 0.0};
+                MaxPArray -> SetTuple1(Plane->FindPoint(point),(unsigned char)vproj);
             }
         }
 
@@ -481,9 +511,11 @@ void ExportDetailedMaxProjection(_mitoObject *mitoObject) {
         for (x = Dim[0]; x--;) {
             for (y = Dim[1]; y--;) {
                 v = Image -> GetScalarComponentAsFloat(x,y,0,0);
-                MaxPArray -> SetTuple1(Plane->FindPoint(x+Dim[1],y,0),(unsigned char)v);
+                double point1[3] = {(double)(x+Dim[1]), (double)y, 0.0};
+                MaxPArray -> SetTuple1(Plane->FindPoint(point1),(unsigned char)v);
                 v = Image -> GetScalarComponentAsFloat(x,y,Dim[2]-1,0);
-                MaxPArray -> SetTuple1(Plane->FindPoint(x+Dim[1],y+Dim[1],0),(unsigned char)v);
+                double point2[3] = {(double)(x+Dim[1]), (double)(y+Dim[1]), 0.0};
+                MaxPArray -> SetTuple1(Plane->FindPoint(point2),(unsigned char)v);
             }
         }
 
@@ -543,6 +575,10 @@ void ExportConfigFile(const _mitoObject mitoObject) {
     if (mitoObject._adaptive_threshold) {
         fprintf(f,"NBlocks: %d\n",mitoObject._nblks);
     }
+    if (mitoObject._z_adaptive) {
+        fprintf(f,"Z-Adaptive Processing: %s\n",_t);
+        fprintf(f,"Z-Block Size: %d\n",mitoObject._z_block_size);
+    }
     fprintf(f,"Pixel size: -xy %1.4fum, -z %1.4fum\n",_dxy,_dz);
     fprintf(f,"Average tubule radius: -r %1.4fum\n",_rad);
     fprintf(f,"Scales: -scales %1.2f",mitoObject._sigmai);
@@ -552,6 +588,7 @@ void ExportConfigFile(const _mitoObject mitoObject) {
     fprintf(f,"Input type: %s\n",mitoObject.Type.c_str());
     fprintf(f,"Analyze: %s\n",mitoObject._analyze?_t:_f);
     fprintf(f,"Binary input: %s\n",mitoObject._binary_input?_t:_f);
+    fprintf(f,"Z-Adaptive: %s\n",mitoObject._z_adaptive?_t:_f);
     time_t now = time(0);
     fprintf(f,"%s\n",ctime(&now));
     fclose(f);
@@ -593,7 +630,7 @@ vtkSmartPointer<vtkImageData> Convert16To8bit(vtkSmartPointer<vtkImageData> Imag
         ScalarsChar -> SetNumberOfTuples(N);
         
         double x, y;
-        vtkIdType register id;
+        vtkIdType id;
         for ( id = N; id--; ) {
             x = ScalarsShort -> GetTuple1(id);
             y = 255.0 * (x-range[0]) / (range[1]-range[0]);
@@ -601,6 +638,277 @@ vtkSmartPointer<vtkImageData> Convert16To8bit(vtkSmartPointer<vtkImageData> Imag
         }
         ScalarsChar -> Modified();
 
+        Image8 -> GetPointData() -> SetScalars(ScalarsChar);
+        return Image8;
+
+    // Other depth
+    } else {
+        return NULL;
+    }
+}
+
+vtkSmartPointer<vtkImageData> Convert16To8bitZAdaptive(vtkSmartPointer<vtkImageData> Image) {
+
+    // 8-Bit images
+    if (Image -> GetScalarType() == VTK_UNSIGNED_CHAR) {
+
+        return Image;
+
+    // 16-Bit images
+    } else if (Image -> GetScalarType() == VTK_UNSIGNED_SHORT) {
+
+        #ifdef DEBUG
+            printf("Converting from 16-bit to 8-bit with Z-adaptive normalization...\n");
+        #endif
+
+        int *Dim = Image -> GetDimensions();
+        vtkSmartPointer<vtkImageData> Image8 = vtkImageData::New();
+        Image8 -> ShallowCopy(Image);
+
+        vtkDataArray *ScalarsShort = Image -> GetPointData() -> GetScalars();
+        unsigned long int N = ScalarsShort -> GetNumberOfTuples();
+
+        vtkSmartPointer<vtkUnsignedCharArray> ScalarsChar = vtkSmartPointer<vtkUnsignedCharArray>::New();
+        ScalarsChar -> SetNumberOfComponents(1);
+        ScalarsChar -> SetNumberOfTuples(N);
+        
+        // Process each z-plane independently
+        for (int z = 0; z < Dim[2]; z++) {
+            
+            // Find min/max for this z-plane
+            double z_min = DBL_MAX, z_max = DBL_MIN;
+            for (int x = 0; x < Dim[0]; x++) {
+                for (int y = 0; y < Dim[1]; y++) {
+                    double val = Image -> GetScalarComponentAsDouble(x, y, z, 0);
+                    if (val < z_min) z_min = val;
+                    if (val > z_max) z_max = val;
+                }
+            }
+            
+            #ifdef DEBUG
+                printf("\tZ-plane %d: range [%1.1f-%1.1f]\n", z, z_min, z_max);
+            #endif
+            
+            // Normalize this z-plane
+            double z_range = z_max - z_min;
+            if (z_range > 0) {
+                for (int x = 0; x < Dim[0]; x++) {
+                    for (int y = 0; y < Dim[1]; y++) {
+                        double point[3] = {(double)x, (double)y, (double)z};
+                        vtkIdType id = Image -> FindPoint(point);
+                        double val = ScalarsShort -> GetTuple1(id);
+                        double normalized = 255.0 * (val - z_min) / z_range;
+                        ScalarsChar -> SetTuple1(id, (unsigned char)normalized);
+                    }
+                }
+            } else {
+                // If z-plane has uniform intensity, set to middle gray
+                for (int x = 0; x < Dim[0]; x++) {
+                    for (int y = 0; y < Dim[1]; y++) {
+                        double point[3] = {(double)x, (double)y, (double)z};
+                        vtkIdType id = Image -> FindPoint(point);
+                        ScalarsChar -> SetTuple1(id, 128);
+                    }
+                }
+            }
+        }
+        
+        ScalarsChar -> Modified();
+        Image8 -> GetPointData() -> SetScalars(ScalarsChar);
+        return Image8;
+
+    // Other depth
+    } else {
+        return NULL;
+    }
+}
+
+vtkSmartPointer<vtkImageData> Convert16To8bitZAdaptiveBlocks(vtkSmartPointer<vtkImageData> Image, int block_size) {
+
+    // 8-Bit images
+    if (Image -> GetScalarType() == VTK_UNSIGNED_CHAR) {
+        return Image;
+    }
+
+    // 16-Bit images
+    if (Image -> GetScalarType() == VTK_UNSIGNED_SHORT) {
+
+        #ifdef DEBUG
+            printf("Converting from 16-bit to 8-bit with Z-block adaptive normalization (block size: %d)...\n", block_size);
+        #endif
+
+        int *Dim = Image -> GetDimensions();
+        vtkSmartPointer<vtkImageData> Image8 = vtkImageData::New();
+        Image8 -> ShallowCopy(Image);
+
+        vtkDataArray *ScalarsShort = Image -> GetPointData() -> GetScalars();
+        unsigned long int N = ScalarsShort -> GetNumberOfTuples();
+
+        vtkSmartPointer<vtkUnsignedCharArray> ScalarsChar = vtkSmartPointer<vtkUnsignedCharArray>::New();
+        ScalarsChar -> SetNumberOfComponents(1);
+        ScalarsChar -> SetNumberOfTuples(N);
+        
+        // Calculate global statistics for fallback
+        double global_range[2];
+        ScalarsShort -> GetRange(global_range);
+        
+        // Process z-planes in blocks
+        for (int z_start = 0; z_start < Dim[2]; z_start += block_size) {
+            
+            int z_end = (z_start + block_size < Dim[2]) ? z_start + block_size : Dim[2];
+            
+            // Find min/max for this z-block
+            double block_min = DBL_MAX, block_max = DBL_MIN;
+            for (int z = z_start; z < z_end; z++) {
+                for (int x = 0; x < Dim[0]; x++) {
+                    for (int y = 0; y < Dim[1]; y++) {
+                        double val = Image -> GetScalarComponentAsDouble(x, y, z, 0);
+                        if (val < block_min) block_min = val;
+                        if (val > block_max) block_max = val;
+                    }
+                }
+            }
+            
+            // Use hybrid approach: local range but constrained by global range
+            double block_range = block_max - block_min;
+            double global_range_size = global_range[1] - global_range[0];
+            
+            // If block range is too small compared to global, use global stats
+            if (block_range < global_range_size * 0.1) {
+                block_min = global_range[0];
+                block_max = global_range[1];
+                block_range = global_range_size;
+            }
+            
+            #ifdef DEBUG
+                printf("\tZ-block %d-%d: range [%1.1f-%1.1f]\n", z_start, z_end-1, block_min, block_max);
+            #endif
+            
+            // Normalize this z-block
+            if (block_range > 0) {
+                for (int z = z_start; z < z_end; z++) {
+                    for (int x = 0; x < Dim[0]; x++) {
+                        for (int y = 0; y < Dim[1]; y++) {
+                            double point[3] = {(double)x, (double)y, (double)z};
+                            vtkIdType id = Image -> FindPoint(point);
+                            double val = ScalarsShort -> GetTuple1(id);
+                            double normalized = 255.0 * (val - block_min) / block_range;
+                            ScalarsChar -> SetTuple1(id, (unsigned char)normalized);
+                        }
+                    }
+                }
+            } else {
+                // If block has uniform intensity, use global normalization
+                for (int z = z_start; z < z_end; z++) {
+                    for (int x = 0; x < Dim[0]; x++) {
+                        for (int y = 0; y < Dim[1]; y++) {
+                            double point[3] = {(double)x, (double)y, (double)z};
+                            vtkIdType id = Image -> FindPoint(point);
+                            double val = ScalarsShort -> GetTuple1(id);
+                            double normalized = 255.0 * (val - global_range[0]) / global_range_size;
+                            ScalarsChar -> SetTuple1(id, (unsigned char)normalized);
+                        }
+                    }
+                }
+            }
+        }
+        
+        ScalarsChar -> Modified();
+        Image8 -> GetPointData() -> SetScalars(ScalarsChar);
+        return Image8;
+
+    } else {
+        return NULL;
+    }
+}
+
+vtkSmartPointer<vtkImageData> Convert16To8bitZAdaptiveGentle(vtkSmartPointer<vtkImageData> Image, int block_size) {
+
+    // 8-Bit images
+    if (Image -> GetScalarType() == VTK_UNSIGNED_CHAR) {
+
+        return Image;
+
+    // 16-Bit images
+    } else if (Image -> GetScalarType() == VTK_UNSIGNED_SHORT) {
+
+        #ifdef DEBUG
+            printf("Converting from 16-bit to 8-bit with gentle Z-adaptive enhancement...\n");
+        #endif
+
+        int *Dim = Image -> GetDimensions();
+        vtkSmartPointer<vtkImageData> Image8 = vtkImageData::New();
+        Image8 -> ShallowCopy(Image);
+
+        vtkDataArray *ScalarsShort = Image -> GetPointData() -> GetScalars();
+        unsigned long int N = ScalarsShort -> GetNumberOfTuples();
+        
+        // First apply global normalization to preserve 3D relationships
+        double global_range[2];
+        ScalarsShort -> GetRange(global_range);
+        
+        vtkSmartPointer<vtkUnsignedCharArray> ScalarsChar = vtkSmartPointer<vtkUnsignedCharArray>::New();
+        ScalarsChar -> SetNumberOfComponents(1);
+        ScalarsChar -> SetNumberOfTuples(N);
+        
+        // Apply global normalization first
+        double global_scale = 255.0 / (global_range[1] - global_range[0]);
+        for (vtkIdType id = 0; id < N; id++) {
+            double val = ScalarsShort -> GetTuple1(id);
+            double normalized = global_scale * (val - global_range[0]);
+            ScalarsChar -> SetTuple1(id, (unsigned char)normalized);
+        }
+        
+        // Then apply local contrast enhancement per z-plane
+        for (int z = 0; z < Dim[2]; z++) {
+            
+            // Calculate statistics for this z-plane
+            double z_sum = 0.0, z_mean = 0.0;
+            double z_min = 255.0, z_max = 0.0;
+            int z_pixels = Dim[0] * Dim[1];
+            
+            for (int x = 0; x < Dim[0]; x++) {
+                for (int y = 0; y < Dim[1]; y++) {
+                    double point[3] = {(double)x, (double)y, (double)z};
+                    vtkIdType id = Image -> FindPoint(point);
+                    double val = ScalarsChar -> GetTuple1(id);
+                    z_sum += val;
+                    if (val < z_min) z_min = val;
+                    if (val > z_max) z_max = val;
+                }
+            }
+            z_mean = z_sum / z_pixels;
+            
+            // Apply gentle contrast enhancement for dimmer z-planes
+            double z_range = z_max - z_min;
+            if (z_range > 0 && z_mean < 100) { // Only enhance dimmer planes
+                
+                double enhancement_factor = 1.5; // Gentle enhancement
+                
+                for (int x = 0; x < Dim[0]; x++) {
+                    for (int y = 0; y < Dim[1]; y++) {
+                        double point[3] = {(double)x, (double)y, (double)z};
+                        vtkIdType id = Image -> FindPoint(point);
+                        double val = ScalarsChar -> GetTuple1(id);
+                        
+                        // Apply contrast enhancement around mean
+                        double enhanced = z_mean + enhancement_factor * (val - z_mean);
+                        
+                        // Clamp to valid range
+                        if (enhanced < 0) enhanced = 0;
+                        if (enhanced > 255) enhanced = 255;
+                        
+                        ScalarsChar -> SetTuple1(id, (unsigned char)enhanced);
+                    }
+                }
+                
+                #ifdef DEBUG
+                    printf("\tEnhanced dimmer z-plane %d (mean=%1.1f)\n", z, z_mean);
+                #endif
+            }
+        }
+        
+        ScalarsChar -> Modified();
         Image8 -> GetPointData() -> SetScalars(ScalarsChar);
         return Image8;
 
@@ -648,6 +956,433 @@ vtkSmartPointer<vtkImageData> BinarizeAndConvertDoubleToChar(vtkSmartPointer<vtk
 
 }
 
+vtkSmartPointer<vtkImageData> BinarizeAndConvertDoubleToCharZAdaptive(vtkSmartPointer<vtkImageData> Image, double base_threshold) {
+
+    #ifdef DEBUG
+        printf("Applying Z-adaptive binarization...\n");
+    #endif
+
+    int *Dim = Image -> GetDimensions();
+    vtkSmartPointer<vtkImageData> Image8 = vtkImageData::New();
+    Image8 -> ShallowCopy(Image);
+
+    vtkDataArray *ScalarsDouble = Image -> GetPointData() -> GetScalars();
+    unsigned long int N = ScalarsDouble -> GetNumberOfTuples();
+
+    vtkSmartPointer<vtkUnsignedCharArray> ScalarsChar = vtkSmartPointer<vtkUnsignedCharArray>::New();
+    ScalarsChar -> SetNumberOfComponents(1);
+    ScalarsChar -> SetNumberOfTuples(N);
+    
+    // Process each z-plane independently
+    for (int z = 0; z < Dim[2]; z++) {
+        
+        // Calculate statistics for this z-plane
+        double z_sum = 0.0, z_mean = 0.0, z_std = 0.0;
+        double z_min = DBL_MAX, z_max = DBL_MIN;
+        int z_pixels = Dim[0] * Dim[1];
+        
+        // First pass: calculate mean and range
+        for (int x = 0; x < Dim[0]; x++) {
+            for (int y = 0; y < Dim[1]; y++) {
+                double point[3] = {(double)x, (double)y, (double)z};
+                vtkIdType id = Image -> FindPoint(point);
+                double val = ScalarsDouble -> GetTuple1(id);
+                z_sum += val;
+                if (val < z_min) z_min = val;
+                if (val > z_max) z_max = val;
+            }
+        }
+        z_mean = z_sum / z_pixels;
+        
+        // Second pass: calculate standard deviation
+        double var_sum = 0.0;
+        for (int x = 0; x < Dim[0]; x++) {
+            for (int y = 0; y < Dim[1]; y++) {
+                double point[3] = {(double)x, (double)y, (double)z};
+                vtkIdType id = Image -> FindPoint(point);
+                double val = ScalarsDouble -> GetTuple1(id);
+                var_sum += (val - z_mean) * (val - z_mean);
+            }
+        }
+        z_std = sqrt(var_sum / z_pixels);
+        
+        // Calculate adaptive threshold for this z-plane
+        // Use mean + std deviation as threshold, scaled by base_threshold
+        double z_threshold = z_mean + (z_std * base_threshold * 2.0);
+        
+        // Ensure threshold is within reasonable bounds
+        if (z_threshold > z_max) z_threshold = z_max * 0.8;
+        if (z_threshold < z_min) z_threshold = z_min + (z_max - z_min) * 0.1;
+        
+        #ifdef DEBUG
+            printf("\tZ-plane %d: mean=%1.3f, std=%1.3f, threshold=%1.3f\n", 
+                   z, z_mean, z_std, z_threshold);
+        #endif
+        
+        // Apply threshold to this z-plane
+        for (int x = 0; x < Dim[0]; x++) {
+            for (int y = 0; y < Dim[1]; y++) {
+                double point[3] = {(double)x, (double)y, (double)z};
+                vtkIdType id = Image -> FindPoint(point);
+                double val = ScalarsDouble -> GetTuple1(id);
+                
+                if (val <= z_threshold) {
+                    ScalarsChar -> SetTuple1(id, 0);
+                } else {
+                    ScalarsChar -> SetTuple1(id, 255);
+                }
+            }
+        }
+    }
+    
+    ScalarsChar -> Modified();
+    Image8 -> GetPointData() -> SetScalars(ScalarsChar);
+    return Image8;
+}
+
+vtkSmartPointer<vtkImageData> BinarizeAndConvertDoubleToCharZAdaptiveConservative(vtkSmartPointer<vtkImageData> Image, double base_threshold, int z_block_size) {
+
+    #ifdef DEBUG
+        printf("Applying conservative Z-adaptive binarization (block size: %d)...\n", z_block_size);
+    #endif
+
+    int *Dim = Image -> GetDimensions();
+    vtkSmartPointer<vtkImageData> Image8 = vtkImageData::New();
+    Image8 -> ShallowCopy(Image);
+
+    vtkDataArray *ScalarsDouble = Image -> GetPointData() -> GetScalars();
+    unsigned long int N = ScalarsDouble -> GetNumberOfTuples();
+
+    vtkSmartPointer<vtkUnsignedCharArray> ScalarsChar = vtkSmartPointer<vtkUnsignedCharArray>::New();
+    ScalarsChar -> SetNumberOfComponents(1);
+    ScalarsChar -> SetNumberOfTuples(N);
+    
+    // Calculate global threshold as reference
+    double global_range[2];
+    ScalarsDouble -> GetRange(global_range);
+    double global_threshold = base_threshold;
+    
+    // Process z-planes in blocks to reduce noise sensitivity
+    for (int z_start = 0; z_start < Dim[2]; z_start += z_block_size) {
+        
+        int z_end = (z_start + z_block_size < Dim[2]) ? z_start + z_block_size : Dim[2];
+        
+        // Calculate statistics for this z-block
+        double block_sum = 0.0, block_mean = 0.0, block_std = 0.0;
+        double block_min = DBL_MAX, block_max = DBL_MIN;
+        int block_pixels = Dim[0] * Dim[1] * (z_end - z_start);
+        
+        // First pass: calculate mean and range for the block
+        for (int z = z_start; z < z_end; z++) {
+            for (int x = 0; x < Dim[0]; x++) {
+                for (int y = 0; y < Dim[1]; y++) {
+                    double point[3] = {(double)x, (double)y, (double)z};
+                    vtkIdType id = Image -> FindPoint(point);
+                    double val = ScalarsDouble -> GetTuple1(id);
+                    block_sum += val;
+                    if (val < block_min) block_min = val;
+                    if (val > block_max) block_max = val;
+                }
+            }
+        }
+        block_mean = block_sum / block_pixels;
+        
+        // Second pass: calculate standard deviation
+        double var_sum = 0.0;
+        for (int z = z_start; z < z_end; z++) {
+            for (int x = 0; x < Dim[0]; x++) {
+                for (int y = 0; y < Dim[1]; y++) {
+                    double point[3] = {(double)x, (double)y, (double)z};
+                    vtkIdType id = Image -> FindPoint(point);
+                    double val = ScalarsDouble -> GetTuple1(id);
+                    var_sum += (val - block_mean) * (val - block_mean);
+                }
+            }
+        }
+        block_std = sqrt(var_sum / block_pixels);
+        
+        // Improved adaptive threshold that gives user's threshold meaningful control
+        // Start with user's threshold as the base, then make adaptive adjustments
+        
+        // Calculate what the user's threshold would be in this block's value range
+        double block_range = block_max - block_min;
+        double user_threshold_in_block = block_min + (block_range * (base_threshold / 1.0));
+        
+        // Make conservative adaptive adjustment: only adjust up to ±0.5 std deviations
+        double adaptive_adjustment = block_std * 0.5;
+        
+        // For dimmer blocks (mean < 50% of range), be slightly more sensitive
+        // For brighter blocks (mean > 50% of range), be slightly less sensitive
+        double brightness_factor = (block_mean - block_min) / block_range;
+        if (brightness_factor < 0.5) {
+            // Dimmer block - reduce threshold slightly (more sensitive)
+            adaptive_adjustment *= -0.3;
+        } else {
+            // Brighter block - increase threshold slightly (less sensitive)
+            adaptive_adjustment *= 0.3;
+        }
+        
+        double adaptive_threshold = user_threshold_in_block + adaptive_adjustment;
+        
+        // Ensure reasonable bounds - don't deviate too far from user's intent
+        double min_threshold = block_min + (block_range * (base_threshold * 0.5));
+        double max_threshold = block_min + (block_range * (base_threshold * 2.0));
+        
+        if (adaptive_threshold < min_threshold) adaptive_threshold = min_threshold;
+        if (adaptive_threshold > max_threshold) adaptive_threshold = max_threshold;
+        
+        #ifdef DEBUG
+            printf("\tZ-block %d-%d: mean=%1.3f, std=%1.3f, user_threshold=%1.3f, user_mapped=%1.3f, adaptive_threshold=%1.3f\n", 
+                   z_start, z_end-1, block_mean, block_std, base_threshold, user_threshold_in_block, adaptive_threshold);
+        #endif
+        
+        // Apply threshold to this z-block
+        for (int z = z_start; z < z_end; z++) {
+            for (int x = 0; x < Dim[0]; x++) {
+                for (int y = 0; y < Dim[1]; y++) {
+                    double point[3] = {(double)x, (double)y, (double)z};
+                    vtkIdType id = Image -> FindPoint(point);
+                    double val = ScalarsDouble -> GetTuple1(id);
+                    
+                    if (val <= adaptive_threshold) {
+                        ScalarsChar -> SetTuple1(id, 0);
+                    } else {
+                        ScalarsChar -> SetTuple1(id, 255);
+                    }
+                }
+            }
+        }
+    }
+    
+    ScalarsChar -> Modified();
+    Image8 -> GetPointData() -> SetScalars(ScalarsChar);
+    return Image8;
+}
+
+// Enhanced structural connectivity function with advanced algorithms
+vtkSmartPointer<vtkImageData> EnhanceStructuralConnectivity(vtkSmartPointer<vtkImageData> Image, double sigma = 1.0) {
+    #ifdef DEBUG
+        printf("Applying strong structural connectivity enhancement...\n");
+    #endif
+    
+    int *Dim = Image -> GetDimensions();
+    vtkDataArray *OriginalScalars = Image -> GetPointData() -> GetScalars();
+    unsigned long int N = OriginalScalars -> GetNumberOfTuples();
+    
+    // 1. Multi-scale Gaussian smoothing to connect structures at different distances
+    vtkSmartPointer<vtkImageGaussianSmooth> GaussSmooth1 = vtkSmartPointer<vtkImageGaussianSmooth>::New();
+    GaussSmooth1 -> SetInputData(Image);
+    GaussSmooth1 -> SetDimensionality(3);
+    GaussSmooth1 -> SetStandardDeviations(sigma, sigma, sigma * 0.3);
+    GaussSmooth1 -> Update();
+    
+    vtkSmartPointer<vtkImageGaussianSmooth> GaussSmooth2 = vtkSmartPointer<vtkImageGaussianSmooth>::New();
+    GaussSmooth2 -> SetInputData(Image);
+    GaussSmooth2 -> SetDimensionality(3);
+    GaussSmooth2 -> SetStandardDeviations(sigma * 1.8, sigma * 1.8, sigma * 0.6);
+    GaussSmooth2 -> Update();
+    
+    vtkDataArray *SmoothedScalars1 = GaussSmooth1 -> GetOutput() -> GetPointData() -> GetScalars();
+    vtkDataArray *SmoothedScalars2 = GaussSmooth2 -> GetOutput() -> GetPointData() -> GetScalars();
+    
+    // 2. Create enhanced image
+    vtkSmartPointer<vtkImageData> EnhancedImage = vtkImageData::New();
+    EnhancedImage -> ShallowCopy(Image);
+    
+    vtkSmartPointer<vtkDoubleArray> EnhancedScalars = vtkSmartPointer<vtkDoubleArray>::New();
+    EnhancedScalars -> SetNumberOfComponents(1);
+    EnhancedScalars -> SetNumberOfTuples(N);
+    
+    // 3. Advanced gap bridging algorithm
+    for (int z = 1; z < Dim[2]-1; z++) {
+        for (int y = 1; y < Dim[1]-1; y++) {
+            for (int x = 1; x < Dim[0]-1; x++) {
+                double point[3] = {(double)x, (double)y, (double)z};
+                vtkIdType id = Image -> FindPoint(point);
+                
+                double original_val = OriginalScalars -> GetTuple1(id);
+                double smooth1_val = SmoothedScalars1 -> GetTuple1(id);
+                double smooth2_val = SmoothedScalars2 -> GetTuple1(id);
+                
+                // Check for strong signals in neighborhood
+                double max_neighbor = 0.0;
+                double neighbor_sum = 0.0;
+                int strong_neighbors = 0;
+                
+                // Check 26-neighborhood
+                for (int dz = -1; dz <= 1; dz++) {
+                    for (int dy = -1; dy <= 1; dy++) {
+                        for (int dx = -1; dx <= 1; dx++) {
+                            if (dx == 0 && dy == 0 && dz == 0) continue;
+                            
+                            double neighbor_point[3] = {(double)(x+dx), (double)(y+dy), (double)(z+dz)};
+                            vtkIdType neighbor_id = Image -> FindPoint(neighbor_point);
+                            double neighbor_val = OriginalScalars -> GetTuple1(neighbor_id);
+                            
+                            max_neighbor = (neighbor_val > max_neighbor) ? neighbor_val : max_neighbor;
+                            neighbor_sum += neighbor_val;
+                            if (neighbor_val > 0.1) strong_neighbors++;
+                        }
+                    }
+                }
+                
+                double neighbor_avg = neighbor_sum / 26.0;
+                
+                // Basic enhancement combination
+                double enhanced_val = original_val * 0.7 + smooth1_val * 0.2 + smooth2_val * 0.1;
+                
+                // Advanced gap bridging: if current position is weak but surrounded by strong neighbors
+                if (original_val < 0.05 && strong_neighbors >= 4 && max_neighbor > 0.15) {
+                    // This might be a gap that needs bridging
+                    enhanced_val = neighbor_avg * 0.6 + smooth2_val * 0.4;
+                }
+                
+                // Connection enhancement: if smoothed signal is stronger than original
+                if (smooth2_val > original_val * 1.5 && smooth2_val > 0.08) {
+                    enhanced_val = original_val * 0.4 + smooth2_val * 0.6;
+                }
+                
+                // Strengthen existing strong signals
+                if (original_val > 0.2) {
+                    enhanced_val = original_val * 0.9 + smooth1_val * 0.1;
+                }
+                
+                EnhancedScalars -> SetTuple1(id, enhanced_val);
+            }
+        }
+    }
+    
+    // 4. Special handling for boundary regions
+    for (int z = 0; z < Dim[2]; z++) {
+        for (int y = 0; y < Dim[1]; y++) {
+            for (int x = 0; x < Dim[0]; x++) {
+                if (x == 0 || x == Dim[0]-1 || y == 0 || y == Dim[1]-1 || z == 0 || z == Dim[2]-1) {
+                    double point[3] = {(double)x, (double)y, (double)z};
+                    vtkIdType id = Image -> FindPoint(point);
+                    double original_val = OriginalScalars -> GetTuple1(id);
+                    EnhancedScalars -> SetTuple1(id, original_val);
+                }
+            }
+        }
+    }
+    
+    EnhancedScalars -> Modified();
+    EnhancedImage -> GetPointData() -> SetScalars(EnhancedScalars);
+    
+    #ifdef DEBUG
+        printf("Strong structural connectivity enhancement completed.\n");
+    #endif
+    
+    return EnhancedImage;
+}
+
+// Connect fragmented skeleton segments
+vtkSmartPointer<vtkPolyData> ConnectSkeletonFragments(vtkSmartPointer<vtkPolyData> Skeleton, double max_gap_distance) {
+    #ifdef DEBUG
+        printf("Connecting fragmented skeleton segments...\n");
+    #endif
+    
+    // 1. Find all endpoints
+    std::vector<vtkIdType> endpoints;
+    vtkSmartPointer<vtkPolyData> ConnectedSkeleton = vtkSmartPointer<vtkPolyData>::New();
+    ConnectedSkeleton -> DeepCopy(Skeleton);
+    
+    // Build connectivity relationships
+    ConnectedSkeleton -> BuildLinks();
+    
+    // Find endpoints (degree-1 points)
+    for (vtkIdType pointId = 0; pointId < ConnectedSkeleton->GetNumberOfPoints(); pointId++) {
+        vtkSmartPointer<vtkIdList> cellIds = vtkSmartPointer<vtkIdList>::New();
+        ConnectedSkeleton->GetPointCells(pointId, cellIds);
+        
+        // Calculate how many edges this point connects to
+        int degree = 0;
+        for (vtkIdType i = 0; i < cellIds->GetNumberOfIds(); i++) {
+            vtkCell* cell = ConnectedSkeleton->GetCell(cellIds->GetId(i));
+            if (cell->GetPointId(0) == pointId || cell->GetPointId(cell->GetNumberOfPoints()-1) == pointId) {
+                degree++;
+            }
+        }
+        
+        if (degree == 1) {
+            endpoints.push_back(pointId);
+        }
+    }
+    
+    #ifdef DEBUG
+        printf("\tFound %d endpoints\n", (int)endpoints.size());
+    #endif
+    
+    // 2. Create connections for endpoint pairs
+    std::vector<std::pair<vtkIdType, vtkIdType>> connections_to_add;
+    
+    for (size_t i = 0; i < endpoints.size(); i++) {
+        for (size_t j = i + 1; j < endpoints.size(); j++) {
+            vtkIdType point1 = endpoints[i];
+            vtkIdType point2 = endpoints[j];
+            
+            double p1[3], p2[3];
+            ConnectedSkeleton->GetPoint(point1, p1);
+            ConnectedSkeleton->GetPoint(point2, p2);
+            
+            // Calculate Euclidean distance
+            double distance = sqrt(
+                (p1[0] - p2[0]) * (p1[0] - p2[0]) +
+                (p1[1] - p2[1]) * (p1[1] - p2[1]) +
+                (p1[2] - p2[2]) * (p1[2] - p2[2])
+            );
+            
+            // If distance is within reasonable range, mark for connection
+            if (distance <= max_gap_distance && distance > 0.1) {
+                // Check if these two points are already in the same connected component
+                bool already_connected = false;
+                
+                // Simple check: if reachable through existing edges, don't add new connection
+                // (Simplified handling, should do proper connectivity check)
+                
+                if (!already_connected) {
+                    connections_to_add.push_back(std::make_pair(point1, point2));
+                }
+            }
+        }
+    }
+    
+    #ifdef DEBUG
+        printf("\tAdding %d connections\n", (int)connections_to_add.size());
+    #endif
+    
+    // 3. Add new connections
+    vtkSmartPointer<vtkCellArray> newLines = vtkSmartPointer<vtkCellArray>::New();
+    
+    // Copy existing line segments
+    for (vtkIdType cellId = 0; cellId < ConnectedSkeleton->GetNumberOfCells(); cellId++) {
+        vtkCell* cell = ConnectedSkeleton->GetCell(cellId);
+        newLines->InsertNextCell(cell);
+    }
+    
+    // Add new connection line segments
+    for (const auto& connection : connections_to_add) {
+        vtkSmartPointer<vtkLine> line = vtkSmartPointer<vtkLine>::New();
+        line->GetPointIds()->SetId(0, connection.first);
+        line->GetPointIds()->SetId(1, connection.second);
+        newLines->InsertNextCell(line);
+    }
+    
+    // 4. Create new PolyData
+    vtkSmartPointer<vtkPolyData> ResultSkeleton = vtkSmartPointer<vtkPolyData>::New();
+    ResultSkeleton->SetPoints(ConnectedSkeleton->GetPoints());
+    ResultSkeleton->SetLines(newLines);
+    
+    // Copy point data
+    ResultSkeleton->GetPointData()->DeepCopy(ConnectedSkeleton->GetPointData());
+    
+    #ifdef DEBUG
+        printf("Skeleton fragment connection completed.\n");
+    #endif
+    
+    return ResultSkeleton;
+}
+
 void FillHoles(vtkSmartPointer<vtkImageData> ImageData) {
 
     #ifdef DEBUG
@@ -678,7 +1413,8 @@ void FillHoles(vtkSmartPointer<vtkImageData> ImageData) {
     for (x = 1; x < Dim[0]-1; x++) {
         for (y = 1; y < Dim[1]-1; y++) {
             for (z = 1; z < Dim[2]-1; z++) {
-                id = ImageData -> FindPoint(x,y,z);
+                double point[3] = {(double)x, (double)y, (double)z};
+                id = ImageData -> FindPoint(point);
                 if ((unsigned short int)ImageData->GetScalarComponentAsDouble(x,y,z,0)) {
                     Volume -> SetTuple1(id,0);
                 } else {
@@ -697,7 +1433,8 @@ void FillHoles(vtkSmartPointer<vtkImageData> ImageData) {
             ImageData -> GetPoint(ido,r);
             x = (int)r[0]; y = (int)r[1]; z = (int)r[2];
             for (i = 0; i < 6; i++) {
-                id = ImageData -> FindPoint(x+ssdx_sort[i],y+ssdy_sort[i],z+ssdz_sort[i]);
+                double point[3] = {(double)(x+ssdx_sort[i]), (double)(y+ssdy_sort[i]), (double)(z+ssdz_sort[i])};
+                id = ImageData -> FindPoint(point);
                 v = Volume -> GetTuple1(id);
                 if ((long int)v > 0) {
                     NextA -> InsertNextId(id);
@@ -1094,7 +1831,7 @@ void GetDivergenceFilter(int *Dim, vtkSmartPointer<vtkDoubleArray> Scalars) {
     #endif
 
     vtkIdType id;
-    int register j, i;
+    int j, i;
     int x, y, z, s = 2;
     double v, norm, V[6][3];
     int Dx[6] = {1,-1,0,0,0,0};
@@ -1382,7 +2119,8 @@ int MultiscaleVesselness(_mitoObject *mitoObject) {
                         } else {
                             v = TIFFReader -> GetOutput() -> GetScalarComponentAsDouble(x,y,0,0);
                         }
-                        id = Image -> FindPoint(x,y,z);
+                        double point[3] = {(double)x, (double)y, (double)z};
+                        id = Image -> FindPoint(point);
                         Scalar -> SetTuple1(id,v);
                     }
                 }
@@ -1441,7 +2179,14 @@ int MultiscaleVesselness(_mitoObject *mitoObject) {
     Image -> SetOrigin(0,0,0);
 
     // Conversion 16-bit to 8-bit
-    Image = Convert16To8bit(Image);
+    // Z-adaptive and XY-adaptive are now independent options
+    if (mitoObject->_z_adaptive) {
+        // Apply gentle z-adaptive normalization that preserves some 3D continuity
+        // Note: xy adaptive (mitoObject->_adaptive_threshold) remains independent
+        Image = Convert16To8bitZAdaptiveGentle(Image, mitoObject->_z_block_size);
+    } else {
+        Image = Convert16To8bit(Image);
+    }
 
     Dim = Image -> GetDimensions();
 
@@ -1537,19 +2282,48 @@ int MultiscaleVesselness(_mitoObject *mitoObject) {
         long int ncc = LabelConnectedComponents(ImageEnhanced,Volume,CSz,6,_div_threshold); // can use _mitoObj here
 
         if (ncc > 1) {
+            // Adjust small component removal threshold based on threshold sensitivity
+            int min_component_size = 5;
+            if (_div_threshold < 0.1) {
+                min_component_size = 3; // For sensitive threshold, preserve more small structures
+            } else if (_div_threshold > 0.2) {
+                min_component_size = 8; // For insensitive threshold, remove more noise
+            }
+            
+            #ifdef DEBUG
+                printf("\tRemoving components smaller than %d voxels...\n", min_component_size);
+            #endif
+            
             for (id = N; id--;) {
                 cluster = (long int)Volume -> GetTuple1(id);
                 if (cluster < 0) {
-                    if (CSz[-cluster-1] <= 5) {
+                    if (CSz[-cluster-1] <= min_component_size) {
                         ImageEnhanced -> GetPointData() -> GetScalars() -> SetTuple1(id,0);
                     }
                 }
             }
         }
 
+        //STRUCTURAL CONNECTIVITY ENHANCEMENT
+        //-----------------------------------
+        #ifdef DEBUG
+            printf("Enhancing structural connectivity before binarization...\n");
+        #endif
+        
+        // Enhance structural connectivity, especially for sensitive threshold settings
+        if (mitoObject->_z_adaptive || _div_threshold < 0.2) {
+            // Use stronger connectivity enhancement for sensitive settings
+            double enhancement_strength = (_div_threshold < 0.1) ? 2.0 : 1.5;
+            ImageEnhanced = EnhanceStructuralConnectivity(ImageEnhanced, enhancement_strength);
+        }
+
         //BINARIZATION
         //------------
-        Binary = BinarizeAndConvertDoubleToChar(ImageEnhanced,_div_threshold); // can use _mitoObj here
+        if (mitoObject->_z_adaptive) {
+            Binary = BinarizeAndConvertDoubleToCharZAdaptiveConservative(ImageEnhanced, _div_threshold, mitoObject->_z_block_size);
+        } else {
+            Binary = BinarizeAndConvertDoubleToChar(ImageEnhanced,_div_threshold); // can use _mitoObj here
+        }
 
         //FILLING HOLES
         //-------------
@@ -1624,6 +2398,28 @@ int MultiscaleVesselness(_mitoObject *mitoObject) {
 
     Skeleton -> DeepCopy(Clean->GetOutput());
 
+    //FRAGMENT CONNECTION
+    //-------------------
+    if (mitoObject->_z_adaptive || _div_threshold < 0.2) {
+        #ifdef DEBUG
+            printf("Applying skeleton fragment connection...\n");
+        #endif
+        
+        // Adjust gap distance based on pixel size and threshold
+        double gap_distance = 3.0 * _dxy; // Base gap distance
+        if (_div_threshold < 0.1) {
+            gap_distance = 5.0 * _dxy; // For sensitive settings, allow larger gaps
+        }
+        
+        Skeleton = ConnectSkeletonFragments(Skeleton, gap_distance);
+        
+        // Clean up the skeleton after connection
+        vtkSmartPointer<vtkCleanPolyData> CleanAfterConnection = vtkSmartPointer<vtkCleanPolyData>::New();
+        CleanAfterConnection -> SetInputData(Skeleton);
+        CleanAfterConnection -> Update();
+        Skeleton -> DeepCopy(CleanAfterConnection->GetOutput());
+    }
+
     //CONNECTED COMPONENTS FOR GRAPH ANALYSIS
     //---------------------------------------
 
@@ -1639,7 +2435,8 @@ int MultiscaleVesselness(_mitoObject *mitoObject) {
             if (node_id > -1) {
                 Skeleton -> GetPoint(id,r);
                 for (char i = 0; i < 6; i++) {
-                    cc_id = (long int)CCVolume->GetTuple1(Binary -> FindPoint((int)r[0]+ssdx_sort[i],(int)r[1]+ssdy_sort[i],(int)r[2]+ssdz_sort[i]));
+                    double point[3] = {(double)((int)r[0]+ssdx_sort[i]), (double)((int)r[1]+ssdy_sort[i]), (double)((int)r[2]+ssdz_sort[i])};
+                    cc_id = (long int)CCVolume->GetTuple1(Binary -> FindPoint(point));
                     // printf("%d\t%d\n",(int)node_id,(int)cc_id);
                     if (cc_id < 0) break;
                 }
@@ -1756,6 +2553,8 @@ int main(int argc, char *argv[]) {
     mitoObject._sigmai = 1.00;
     mitoObject._sigmaf = 1.50;
     mitoObject._nsigma = 6;
+    mitoObject._z_adaptive = false;
+    mitoObject._z_block_size = 3;
 
     // Collecting input parameters
     for (i = 0; i < argc; i++) {
@@ -1785,6 +2584,12 @@ int main(int argc, char *argv[]) {
         if (!strcmp(argv[i],"-adaptive")) {
             mitoObject._adaptive_threshold = true;
             mitoObject._nblks = atoi(argv[i+1]);
+        }
+        if (!strcmp(argv[i],"-z-adaptive")) {
+            mitoObject._z_adaptive = true;
+        }
+        if (!strcmp(argv[i],"-z-block-size")) {
+            mitoObject._z_block_size = atoi(argv[i+1]);
         }
         if (!strcmp(argv[i],"-threshold")) {
             _div_threshold = (double)atof(argv[i+1]);

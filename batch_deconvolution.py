@@ -4,16 +4,16 @@ import numpy as np
 import RedLionfishDeconv as rl
 import tqdm
 # 输入输出路径
-data_dir = r'G:\mitochondria_FITC\Y333 ATP6 TIM50\FITC'
-psf_path = r'F:\atp\PSF BW.tif'
-output_dir = r'F:\atp\Y333 ATP6 TIM50\deconvolved'
+data_dir = r'../mitochondria_FITC/Y333 ATP6 ATP2/FITC'
+psf_path = r'../mitochondria_FITC/PSF BW.tif'
+output_dir = r'Y333 ATP6 ATP2/deconvolved_30'
 os.makedirs(output_dir, exist_ok=True)
 
 # 读取PSF
 psf = imread(psf_path)
 
 # 反卷积参数
-iterations = 50
+iterations = 30
 
 # 遍历data文件夹下所有tif文件
 for fname in tqdm.tqdm(os.listdir(data_dir), desc='Processing', total=len(os.listdir(data_dir))):

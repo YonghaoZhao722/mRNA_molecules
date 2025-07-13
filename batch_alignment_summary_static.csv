@@ -1,0 +1,2 @@
+total_cells,mean_distance_mean,mean_distance_std,optimal_z_offset_mean,optimal_z_offset_std,within_0_5um_mean,improvement_mean,cells_needing_z_correction,systematic_z_bias
+356,2.243294759591481,8.767338485905897,0.1882022471910114,0.41922278670933955,0.7962533140441923,0.06963602856427593,305,0.18279828881814725
