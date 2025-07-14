@@ -23,6 +23,33 @@ mRNA_molecules/
 │       └── *.csv                  # Distance analysis results and histograms
 ```
 
-### Workflow
-1. **batch_extract_cells.py**: Processes aligned_masks/ to extract individual cells into extracted_cells/ and generates coordinate_mapping.json
-2. **interactive_3d_cell2_batch_fixed.py**: Uses extracted_cells/ data, [gene]_spots/, and coordinate_mapping.json to perform distance analysis and save results to interactive_batch_results/
+## File Placement Requirements
+
+### Before Running batch_extract_cells.py:
+```
+[Experiment Folder]/               # e.g., Y333 ATP6 ATP2/
+├── aligned_masks/                 # REQUIRED: Place your cell segmentation mask files here
+│   ├── mask_file_1.tif           # Cell segmentation masks
+│   ├── mask_file_2.tif
+│   └── ...
+└── deconvolved/                   # OPTIONAL: Deconvolved images (if needed)
+    ├── image_file_1.tif
+    └── ...
+```
+
+### Before Running interactive_3d_cell2_batch_fixed.py:
+```
+[Experiment Folder]/               # e.g., Y333 ATP6 ATP2/
+├── extracted_cells/               # OUTPUT from batch_extract_cells.py (auto-generated)
+│   ├── coordinate_mapping.json   # Mapping file (auto-generated)
+│   └── [sample_dirs]/            # Cell data (auto-generated)
+├── atp2_spots/                   # REQUIRED: Place your FISH spot coordinate files here
+│   ├── spot_file_1.txt
+│   ├── spot_file_2.txt
+│   └── ...
+├── atp6_spots/                   # REQUIRED: Place your second gene spot files here
+│   ├── spot_file_1.txt
+│   └── ...
+└── (other gene)_spots/           # REQUIRED: Additional gene spot directories as needed
+    └── ...
+```
