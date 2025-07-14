@@ -45,8 +45,8 @@ def find_matching_files(red_folder, green_folder, exclude_pattern="filtered_batc
     Excludes files containing the exclude_pattern.
     
     Expected patterns:
-    Red: yWL333_cy3_ATP2_cy5_ATP6MS2_X_w1CY5-100-_sY.TIF
-    Green: deconv_yWL333_cy3_ATP2_cy5_ATP6MS2_X_w4FITC-100-_sY.TIF
+    Red: yWL333_cy3_PROTEIN_cy5_ATP6MS2_X_w1CY5-100-_sY.TIF (where PROTEIN is ATP2, ATP3, TIM50, etc.)
+    Green: deconv_yWL333_cy3_PROTEIN_cy5_ATP6MS2_X_w4FITC-100-_sY.TIF (where PROTEIN is ATP2, ATP3, TIM50, etc.)
     """
     # Get all TIF files from both folders
     red_files = glob.glob(os.path.join(red_folder, "*.TIF")) + glob.glob(os.path.join(red_folder, "*.tif"))
@@ -66,8 +66,9 @@ def find_matching_files(red_folder, green_folder, exclude_pattern="filtered_batc
     for file in red_files:
         basename = os.path.basename(file)
         # Extract core identifier: experiment number and slide number
-        # Pattern: yWL333_cy3_ATP2_cy5_ATP6MS2_X_w1CY5-100-_sY.TIF -> yWL333_cy3_ATP2_cy5_ATP6MS2_X_sY
-        match = re.search(r'(yWL333_cy3_ATP2_cy5_ATP6MS2_\d+)_w\d+[A-Z0-9-]+_(s\d+)', basename)
+        # Pattern: yWL333_cy3_PROTEIN_cy5_ATP6MS2_X_w1CY5-100-_sY.TIF -> yWL333_cy3_PROTEIN_cy5_ATP6MS2_X_sY
+        # Supports: ATP2, ATP3, TIM50, etc.
+        match = re.search(r'(yWL333_cy3_[A-Z0-9]+_cy5_ATP6MS2_\d+)_w\d+[A-Z0-9-]+_(s\d+)', basename)
         if match:
             core_name = f"{match.group(1)}_{match.group(2)}"
             red_bases[core_name] = file
@@ -76,9 +77,10 @@ def find_matching_files(red_folder, green_folder, exclude_pattern="filtered_batc
     for file in green_files:
         basename = os.path.basename(file)
         # Extract core identifier from green files (remove deconv_ prefix)
-        # Pattern: deconv_yWL333_cy3_ATP2_cy5_ATP6MS2_X_w4FITC-100-_sY.TIF -> yWL333_cy3_ATP2_cy5_ATP6MS2_X_sY
+        # Pattern: deconv_yWL333_cy3_PROTEIN_cy5_ATP6MS2_X_w4FITC-100-_sY.TIF -> yWL333_cy3_PROTEIN_cy5_ATP6MS2_X_sY
+        # Supports: ATP2, ATP3, TIM50, etc.
         basename_no_prefix = re.sub(r'^deconv_', '', basename)
-        match = re.search(r'(yWL333_cy3_ATP2_cy5_ATP6MS2_\d+)_w\d+[A-Z0-9-]+_(s\d+)', basename_no_prefix)
+        match = re.search(r'(yWL333_cy3_[A-Z0-9]+_cy5_ATP6MS2_\d+)_w\d+[A-Z0-9-]+_(s\d+)', basename_no_prefix)
         if match:
             core_name = f"{match.group(1)}_{match.group(2)}"
             green_bases[core_name] = file
@@ -285,9 +287,9 @@ def main():
                        help='Output folder (default: max_projections)')
     parser.add_argument('--exclude', default='filtered_batch', 
                        help='Pattern to exclude from processing (default: filtered_batch)')
-    parser.add_argument('--normalize', default='auto_contrast', 
+    parser.add_argument('--normalize', default='full_range', 
                        choices=['auto_contrast', 'full_range', 'histogram_eq', 'adaptive_eq'],
-                       help='Brightness/contrast normalization method (default: auto_contrast)')
+                       help='Brightness/contrast normalization method (default: full_range)')
     
     args = parser.parse_args()
     

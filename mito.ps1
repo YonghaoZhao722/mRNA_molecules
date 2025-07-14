@@ -1,45 +1,65 @@
-# 设置参数
+# Set parameters
 $mitographExe = ".\MitoGraph.exe"
 $xy = 0.0645
 $z = 0.2
-$threshold = 0.3           # 降低阈值以保留更多连接
-$scalesMin = 0.8           # 扩展尺度范围下限
-$scalesMax = 2.0           # 扩展尺度范围上限
-$scalesCount = 8           # 增加尺度数量
-$adaptive = 5              # 启用自适应阈值
-$rootPath = "Y333 ATP6 ATP2\extracted_cells"
+$threshold = 0.15       
+$scalesMin = 1        
+$scalesMax = 2.0        
+$scalesCount = 8         
+$zAdaptive = $true
+$zBlockSize = 5
+$rootPath = "Y333 ATP6 ATP3\extracted_cells_30"
 
 Write-Host "Script started"
 Write-Host "MitoGraph executable: $mitographExe"
 Write-Host "Parameters: xy=$xy, z=$z, threshold=$threshold"
 Write-Host "Scales: $scalesMin to $scalesMax with $scalesCount levels"
-Write-Host "Adaptive threshold: $adaptive"
+Write-Host "Z-adaptive: $zAdaptive"
+Write-Host "Z-block size: $zBlockSize"
 Write-Host "Root path: $rootPath"
 
-# 检查MitoGraph.exe是否存在
+# Check if MitoGraph executable exists
 if (-not (Test-Path $mitographExe)) {
-    Write-Error "MitoGraph.exe not found at $mitographExe"
+    Write-Error "MitoGraph executable not found at $mitographExe"
     exit 1
 }
 
-# 检查根路径是否存在
+# Check if root path exists
 if (-not (Test-Path $rootPath)) {
     Write-Error "Root path not found: $rootPath"
     exit 1
 }
 
-# 获取所有子文件夹
-$folders = Get-ChildItem -Path $rootPath -Directory
+# Get all subdirectories
 Write-Host "Processing $rootPath"
-Write-Host "Found $($folders.Count) folders to process"
+$folders = Get-ChildItem -Path $rootPath -Directory
+$folderCount = $folders.Count
+Write-Host "Found $folderCount folders to process"
 
+# Process each folder
 foreach ($folder in $folders) {
     $folderPath = $folder.FullName
+    $folderName = $folder.Name
     Write-Host "Processing $folderPath"
+    
+    # Build command with comprehensive parameters to improve tubular structure detection
+    $cmdArgs = @(
+        "-xy", $xy,
+        "-z", $z,
+        "-path", $folderPath,
+        "-threshold", $threshold,
+        "-scales", $scalesMin, $scalesMax, $scalesCount
+    )
+    
+    if ($zAdaptive) {
+        $cmdArgs += @("-z-adaptive")
+        $cmdArgs += @("-z-block-size", $zBlockSize)
+    }
+    
+    # Execute the command
     try {
-        # 使用改进的参数来减少骨架断点
-        & $mitographExe -xy $xy -z $z -path $folderPath -threshold $threshold -scales $scalesMin $scalesMax $scalesCount -adaptive $adaptive
-        Write-Host "Completed processing $($folder.Name)"
+        & $mitographExe @cmdArgs
+        Write-Host "Completed processing $folderName"
     } catch {
         Write-Error "Error processing $folderPath : $_"
     }

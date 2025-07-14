@@ -6,11 +6,11 @@ from scipy.ndimage import binary_dilation
 from skimage.morphology import disk
 
 # Configuration parameters
-add_noise = False  # Set to False to disable Gaussian noise addition
-base_dir = r'Y333 ATP6 ATP2'
-deconv_dir = os.path.join(base_dir, 'binaries')
+add_noise = True  # Set to False to disable Gaussian noise addition
+base_dir = r'Y333 ATP6 ATP3'
+deconv_dir = os.path.join(base_dir, 'deconvolved_30')
 mask_dir = os.path.join(base_dir, 'aligned_masks')
-output_base = os.path.join(base_dir, 'extracted_cells_binary_rm_noise')
+output_base = os.path.join(base_dir, 'extracted_cells_30')
 os.makedirs(output_base, exist_ok=True)
 
 def parse_deconv_filename(filename):
@@ -45,7 +45,7 @@ def create_background_noise(image_slice, mask_single, band_width=5, mask=None):
         band_values = image_slice[band_region]
         mean_val = np.mean(band_values)
         std_val = np.std(band_values)
-        noise_std = 0.5 * std_val
+        noise_std = 0.2 * std_val
         return mean_val, noise_std
     else:
         if mask is not None:
@@ -54,7 +54,7 @@ def create_background_noise(image_slice, mask_single, band_width=5, mask=None):
                 bg_values = image_slice[background_region]
                 mean_val = np.mean(bg_values)
                 std_val = np.std(bg_values)
-                return mean_val, 0.5 * std_val
+                return mean_val, 0.2 * std_val
         return 0, 0
 
 def extract_cells(mask_path, image_path, output_dir):
@@ -62,7 +62,7 @@ def extract_cells(mask_path, image_path, output_dir):
     mask = tifffile.imread(mask_path)
     image = tifffile.imread(image_path)
     if mask.shape != image.shape[1:]:
-        raise ValueError(f"mask xy尺寸与原图不一致: mask {mask.shape}, image {image.shape[1:]}")
+        raise ValueError(f"mask xy size does not match image: mask {mask.shape}, image {image.shape[1:]}")
     
     labels = np.unique(mask)
     labels = labels[labels != 0]
@@ -74,11 +74,10 @@ def extract_cells(mask_path, image_path, output_dir):
         y_min, x_min = coords.min(axis=0)
         cell_info.append((label, y_min))
     
-    # 按y_min坐标排序，然后分配从1开始的新编号
-    cell_info.sort(key=lambda x: x[1])  # 按y_min排序
+    cell_info.sort(key=lambda x: x[1])
     label_mapping = {}
     for i, (original_label, y_min) in enumerate(cell_info):
-        label_mapping[original_label] = i + 1  # 新编号从1开始
+        label_mapping[original_label] = i + 1
     
     coordinate_mapping = {}
     for original_label, new_id in label_mapping.items():
@@ -158,17 +157,17 @@ if __name__ == '__main__':
             continue
         prefix, sidx = parse_deconv_filename(fname)
         if prefix is None or sidx is None:
-            print(f"跳过无法解析的文件: {fname}")
+            print(f"Ignoring: {fname}")
             continue
         mask_path = find_mask_file(prefix, sidx)
         if mask_path is None:
-            print(f"未找到对应mask: {prefix}, {sidx}")
+            print(f"No mask found: {prefix}, {sidx}")
             continue
         image_path = os.path.join(deconv_dir, fname)
         output_dir = os.path.join(output_base, f'{prefix}_{sidx}')
-        print(f"处理: {fname} -> {os.path.basename(mask_path)} 输出到 {output_dir}")
+        print(f"Processing: {fname} -> {os.path.basename(mask_path)} -> {output_dir}")
         try:
             extract_cells(mask_path, image_path, output_dir)
-            print(f"完成: {output_dir}")
+            print(f"Done: {output_dir}")
         except Exception as e:
-            print(f"处理 {fname} 时出错: {e}")
+            print(f"Error processing {fname}: {e}")

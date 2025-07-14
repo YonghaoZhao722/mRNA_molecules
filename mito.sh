@@ -4,13 +4,13 @@
 mitograph_exe="./MitoGraph_z"
 xy=0.0645
 z=0.2
-threshold=0.2          # 提高阈值以降低敏感性，减少碎片化
-scales_min=1.0         # 最小尺度，用于检测细小结构
-scales_max=3.0         # 最大尺度，用于检测较粗的管状结构
-scales_count=8         # 尺度数量，更多尺度有助于更好的管状结构检测
+threshold=0.15       
+scales_min=1        
+scales_max=2.0        
+scales_count=8         
 z_adaptive=true
-z_block_size=15        # 增加z_block_size以获得更平滑的结果
-root_path="Y333 ATP6 ATP2/extracted_cells_z_adaptive"
+z_block_size=8
+root_path="Y333 ATP6 ATP3/extracted_cells_30"
 
 echo "Script started"
 echo "MitoGraph executable: $mitograph_exe"

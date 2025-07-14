@@ -21,9 +21,9 @@ class Interactive3DBatchVisualizerFixed:
 
         # Path settings
         self.base_dir = r'Y333 ATP6 ATP2'
-        self.skeleton_type = 'extracted_cells_z_adaptive'
+        self.skeleton_type = 'extracted_cells_30'
         self.skeleton_root = os.path.join(self.base_dir, self.skeleton_type)
-        self.channel = 'atp6_corrected'
+        self.channel = 'atp2'
         self.spots_root = os.path.join(self.base_dir, f'{self.channel}_spots')
 
         # Data structures
