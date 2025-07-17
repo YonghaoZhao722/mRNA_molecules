@@ -12,7 +12,9 @@ from matplotlib.figure import Figure
 import threading
 import tkinter.simpledialog as simpledialog
 import json
-
+import tifffile
+from skimage.measure import find_contours
+    
 class Interactive3DBatchVisualizerFixed:
     def __init__(self, root):
         self.root = root
@@ -21,10 +23,11 @@ class Interactive3DBatchVisualizerFixed:
 
         # Path settings
         self.base_dir = r'Y333 ATP6 ATP2'
-        self.skeleton_type = 'extracted_cells_30'
+        self.skeleton_type = 'extracted_cells_conn_nonadaptive_rm'
         self.skeleton_root = os.path.join(self.base_dir, self.skeleton_type)
-        self.channel = 'atp2'
+        self.channel = 'atp6_corrected'
         self.spots_root = os.path.join(self.base_dir, f'{self.channel}_spots')
+        self.mask_root = os.path.join(self.base_dir, 'aligned_masks')
 
         # Data structures
         self.available_images = {}  # {image_name: {cell_name: {spots_data, skeleton_file}}}
@@ -39,6 +42,7 @@ class Interactive3DBatchVisualizerFixed:
         self.original_skeleton = None
         self.current_skeleton = None
         self.current_spots = None
+        self.current_outline = None  # New: store cell outline data
         self.distances = None
         self.current_skeleton_translation = np.array([0, 0, 0])
         
@@ -50,6 +54,7 @@ class Interactive3DBatchVisualizerFixed:
         self.use_z_flip = tk.BooleanVar(value=False)
         self.auto_compare_yflip = tk.BooleanVar(value=True)
         self.auto_translate_skeleton = tk.BooleanVar(value=False)
+        self.show_cell_outline = tk.BooleanVar(value=True)  # New: control cell outline visibility
 
         # Create interface
         self.create_interface()
@@ -314,6 +319,126 @@ class Interactive3DBatchVisualizerFixed:
             if self.available_images:
                 self.selected_image.set(list(self.available_images.keys())[0])
 
+    def find_mask_file_for_image(self, image_name):
+        """Find the corresponding mask file for a given image name"""
+        if not os.path.exists(self.mask_root):
+            return None
+        
+        # Parse image name to get prefix and field index
+        parts = image_name.split('_')
+        if len(parts) < 2:
+            return None
+        
+        # Extract index and field-of-view from image name
+        index = parts[-2]  # e.g., "1", "2", "3"
+        fov = parts[-1]    # e.g., "s1", "s2", "s3"
+        
+        # Reconstruct the prefix (everything before the last two parts)
+        prefix = '_'.join(parts[:-2])
+        
+        # Look for mask file with pattern: prefix_DIC_index_fov.tif
+        mask_filename = f"{prefix}_DIC_{index}_{fov}.tif"
+        mask_path = os.path.join(self.mask_root, mask_filename)
+        
+        if os.path.exists(mask_path):
+            return mask_path
+        
+        # Try alternative pattern: prefix_index_DIC_fov.tif
+        mask_filename = f"{prefix}_{index}_DIC_{fov}.tif"
+        mask_path = os.path.join(self.mask_root, mask_filename)
+        
+        if os.path.exists(mask_path):
+            return mask_path
+        
+        return None
+
+    def load_cell_outline_from_mask(self, image_name, cell_name, pixel_xy):
+        """Load cell outline from mask file and convert to proper coordinates"""
+        try:
+            # Find the mask file for this image
+            mask_file = self.find_mask_file_for_image(image_name)
+            if not mask_file:
+                print(f"Warning: No mask file found for {image_name}")
+                return None
+            
+            # Load mask data
+            mask = tifffile.imread(mask_file)
+            
+            # Get cell information from mapping data
+            cell_number = int(cell_name.split("_")[1])
+            cell_id_str = f"{cell_number:03d}"
+            mapping_cell_name = f'cell_{cell_id_str}'
+            mapping_data = self.coordinate_mappings.get(image_name, {})
+            
+            if mapping_cell_name not in mapping_data:
+                print(f"Warning: No mapping data found for {mapping_cell_name}")
+                return None
+            
+            cell_mapping = mapping_data[mapping_cell_name]
+            original_mask_label = cell_mapping.get('original_mask_label', cell_number)
+            
+            # Extract the specific cell mask
+            cell_mask = (mask == original_mask_label).astype(np.uint8)
+            
+            # Find contours of the cell
+            contours = find_contours(cell_mask, level=0.5)
+            
+            if len(contours) == 0:
+                print(f"Warning: No contours found for {mapping_cell_name}")
+                return None
+            
+            # Use the largest contour (main cell boundary)
+            main_contour = max(contours, key=len)
+            
+            # Convert contour coordinates to micrometers
+            # Contour coordinates are in (y, x) format from find_contours
+            # NOTE: Outline is extracted from original mask, so it's already in absolute coordinates
+            # unlike skeleton which is in relative coordinates and needs offset
+            
+            pixel_size_um = pixel_xy / 1000.0  # Convert nm to μm
+            
+            # Convert contour to (x, y) coordinates in micrometers (absolute coordinates)
+            outline_coords = np.zeros((len(main_contour), 2))
+            outline_coords[:, 0] = main_contour[:, 1] * pixel_size_um  # x coordinates
+            outline_coords[:, 1] = main_contour[:, 0] * pixel_size_um  # y coordinates
+            
+            # DO NOT apply coordinate offset - outline is already in absolute coordinates!
+            # The offset is only for skeleton data which is in relative coordinates
+            
+            # Apply Y-flip if enabled (same logic as spots data)
+            if self.use_y_flip.get() and mapping_cell_name in mapping_data:
+                crop_info = mapping_data[mapping_cell_name]['crop_region']
+                y_start = crop_info['y_start']  # Pixel coordinates
+                y_end = crop_info['y_end']      # Pixel coordinates
+                
+                # Convert to nanometer coordinates (pixel * pixel size)
+                y_start_nm = y_start * pixel_xy
+                y_end_nm = y_end * pixel_xy
+                
+                # Flip based on crop region: new_y = (y_start + y_end) - old_y
+                flip_center_nm = y_start_nm + y_end_nm
+                flip_center_um = flip_center_nm / 1000.0  # Convert to μm
+                outline_coords[:, 1] = flip_center_um - outline_coords[:, 1]  # Both in μm units
+            
+            print(f"Loaded cell outline: {len(outline_coords)} points")
+            print(f"Outline range: X=[{outline_coords[:,0].min():.3f}, {outline_coords[:,0].max():.3f}], Y=[{outline_coords[:,1].min():.3f}, {outline_coords[:,1].max():.3f}]")
+            
+            return outline_coords
+            
+        except Exception as e:
+            print(f"Error loading cell outline: {e}")
+            return None
+
+    def get_outline_z_coordinate(self):
+        """Get the Z coordinate for the cell outline (center of the cell in Z)"""
+        if self.current_skeleton is not None and len(self.current_skeleton) > 0:
+            z_center = np.mean(self.current_skeleton[:, 2])  # use skeleton z center
+        elif self.current_spots is not None and len(self.current_spots) > 0:
+            z_center = np.mean(self.current_spots[:, 2])
+        else:
+            z_center = 0.0
+        return z_center
+
     def load_cell_data_analyze_method(self, image_name, cell_name):
         """
         Load cell data using the correct method verified by analyze_alignment.py
@@ -343,6 +468,9 @@ class Interactive3DBatchVisualizerFixed:
                 mapping_data=mapping_data
             )
             
+            # Store pixel size for outline loading
+            self.current_pixel_xy = pixel_xy
+            
             # 2. Load skeleton data (using analyze_alignment.py method)
             skeleton_coords = self.load_skeleton_txt_analyze_method(
                 cell_info['skeleton_file'], 
@@ -351,7 +479,10 @@ class Interactive3DBatchVisualizerFixed:
                 pixel_size_xy=pixel_xy/1000  # Convert to micrometers
             )
             
-            # 3. Coordinate transformation (following analyze_alignment.py logic exactly)
+            # 3. Load cell outline data
+            outline_coords = self.load_cell_outline_from_mask(image_name, cell_name, pixel_xy)
+            
+            # 4. Coordinate transformation (following analyze_alignment.py logic exactly)
             # Rearrange to (x, y, z) format to match skeleton
             spots_nm_xyz = spots_coords[:, [1, 0, 2]]  # from (y, x, z) to (x, y, z)
             
@@ -382,6 +513,24 @@ class Interactive3DBatchVisualizerFixed:
             self.original_spots = self.spots_before_correction.copy()
             self.current_skeleton = skeleton_coords.copy()
             self.original_skeleton = skeleton_coords.copy()
+            
+            # Process outline data for 3D visualization
+            if outline_coords is not None:
+                # Create 3D outline coordinates using the center Z of the cell
+                z_center = self.get_outline_z_coordinate()
+                outline_3d = np.zeros((len(outline_coords), 3))
+                outline_3d[:, 0] = outline_coords[:, 0]  # X coordinates
+                outline_3d[:, 1] = outline_coords[:, 1]  # Y coordinates  
+                outline_3d[:, 2] = z_center               # Z coordinate (center level)
+                
+                # Close the outline loop for better visualization
+                if len(outline_3d) > 0:
+                    outline_3d = np.vstack([outline_3d, outline_3d[0]])  # Add first point at the end to close the loop
+                
+                self.current_outline = outline_3d
+                print(f"Cell outline prepared for 3D visualization at Z={z_center:.3f}μm")
+            else:
+                self.current_outline = None
             
             print(f"Spots range before correction (for visualization): X=[{self.current_spots[:,0].min():.3f}, {self.current_spots[:,0].max():.3f}], Y=[{self.current_spots[:,1].min():.3f}, {self.current_spots[:,1].max():.3f}], Z=[{self.current_spots[:,2].min():.3f}, {self.current_spots[:,2].max():.3f}]")
             print(f"Spots range after correction: X=[{spots_corrected[:,0].min():.3f}, {spots_corrected[:,0].max():.3f}], Y=[{spots_corrected[:,1].min():.3f}, {spots_corrected[:,1].max():.3f}], Z=[{spots_corrected[:,2].min():.3f}, {spots_corrected[:,2].max():.3f}]")
@@ -448,6 +597,10 @@ class Interactive3DBatchVisualizerFixed:
         
         z_flip_check = ttk.Checkbutton(transform_frame, text="Z-axis Flip", variable=self.use_z_flip, command=self.on_transform_change)
         z_flip_check.pack(anchor=tk.W)
+        
+        # Add cell outline option
+        outline_check = ttk.Checkbutton(transform_frame, text="Show Cell Outline", variable=self.show_cell_outline, command=self.on_outline_toggle)
+        outline_check.pack(anchor=tk.W)
         
         # Add separator
         ttk.Separator(transform_frame, orient='horizontal').pack(fill=tk.X, pady=(10, 10))
@@ -539,11 +692,16 @@ class Interactive3DBatchVisualizerFixed:
             self.current_skeleton_translation = np.array([0, 0, 0])
             self.update_3d_plot()
 
+    def on_outline_toggle(self):
+        """Handle cell outline visibility toggle"""
+        self.update_3d_plot()
+
     def update_cell_info(self):
         if self.current_cell and hasattr(self, 'cell_info_label'):
             spots_count = len(self.current_spots) if self.current_spots is not None else 0
             skeleton_count = len(self.current_skeleton) if self.current_skeleton is not None else 0
-            info_text = f"Spots: {spots_count}, Skeleton: {skeleton_count}"
+            outline_count = len(self.current_outline) if self.current_outline is not None else 0
+            info_text = f"Spots: {spots_count}, Skeleton: {skeleton_count}, Outline: {outline_count}"
             self.cell_info_label.config(text=info_text)
 
     def on_rotation_change(self, value=None):
@@ -578,6 +736,10 @@ class Interactive3DBatchVisualizerFixed:
             self.ax.scatter(self.current_skeleton[:, 0], self.current_skeleton[:, 1], self.current_skeleton[:, 2], 
                           c='red', s=10, alpha=0.8, label=f'Skeleton ({len(self.current_skeleton)})')
         
+        if self.current_outline is not None and len(self.current_outline) > 0 and self.show_cell_outline.get():
+            self.ax.plot(self.current_outline[:, 0], self.current_outline[:, 1], self.current_outline[:, 2], 
+                         c='black', linewidth=2, alpha=0.7, label=f'Cell Outline ({len(self.current_outline)})')
+        
         self.ax.set_xlabel('X (μm)')
         self.ax.set_ylabel('Y (μm)')
         self.ax.set_zlabel('Z (μm)')
@@ -592,7 +754,7 @@ class Interactive3DBatchVisualizerFixed:
         
         self.ax.set_title(f'{self.channel.upper()} - {image_title} - {cell_title} - 3D Visualization{flip_status}')
         
-        if (self.current_spots is not None and len(self.current_spots) > 0) or (self.current_skeleton is not None and len(self.current_skeleton) > 0):
+        if (self.current_spots is not None and len(self.current_spots) > 0) or (self.current_skeleton is not None and len(self.current_skeleton) > 0) or (self.current_outline is not None and len(self.current_outline) > 0 and self.show_cell_outline.get()):
             self.ax.legend()
         
         self.set_equal_aspect_3d()
@@ -600,8 +762,19 @@ class Interactive3DBatchVisualizerFixed:
         self.update_cell_info()
 
     def set_equal_aspect_3d(self):
-        if self.current_spots is not None and self.current_skeleton is not None:
-            all_points = np.vstack([self.current_spots, self.current_skeleton])
+        all_points = []
+        
+        if self.current_spots is not None and len(self.current_spots) > 0:
+            all_points.append(self.current_spots)
+        
+        if self.current_skeleton is not None and len(self.current_skeleton) > 0:
+            all_points.append(self.current_skeleton)
+            
+        if self.current_outline is not None and len(self.current_outline) > 0 and self.show_cell_outline.get():
+            all_points.append(self.current_outline)
+        
+        if len(all_points) > 0:
+            all_points = np.vstack(all_points)
             x_range = all_points[:, 0].max() - all_points[:, 0].min()
             y_range = all_points[:, 1].max() - all_points[:, 1].min()
             z_range = all_points[:, 2].max() - all_points[:, 2].min()
@@ -731,6 +904,10 @@ class Interactive3DBatchVisualizerFixed:
             ax.scatter(self.current_skeleton[:, 0], self.current_skeleton[:, 1], 
                       c='red', s=10, alpha=0.5, label='Skeleton')
         
+        if self.current_outline is not None and len(self.current_outline) > 0 and self.show_cell_outline.get():
+            ax.plot(self.current_outline[:, 0], self.current_outline[:, 1], 
+                    c='black', linewidth=2, alpha=0.7, label='Cell Outline')
+        
         ax.set_xlabel('X (μm)')
         ax.set_ylabel('Y (μm)')
         
@@ -744,7 +921,8 @@ class Interactive3DBatchVisualizerFixed:
         
         ax.set_title(f'{self.channel.upper()} - {image_title} - {cell_title} - XY Projection{flip_status}')
         
-        if self.current_skeleton is not None and len(self.current_skeleton) > 0:
+        if ((self.current_skeleton is not None and len(self.current_skeleton) > 0) or 
+            (self.current_outline is not None and len(self.current_outline) > 0 and self.show_cell_outline.get())):
             ax.legend()
         
         ax.grid(True, alpha=0.3)

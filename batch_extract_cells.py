@@ -7,7 +7,7 @@ from skimage.morphology import disk
 
 # Configuration parameters
 add_noise = True  # Set to False to disable Gaussian noise addition
-base_dir = r'Y333 ATP6 ATP3'
+base_dir = r'Y333 ATP6 TIM50'
 deconv_dir = os.path.join(base_dir, 'deconvolved_30')
 mask_dir = os.path.join(base_dir, 'aligned_masks')
 output_base = os.path.join(base_dir, 'extracted_cells_30')

@@ -1,16 +1,16 @@
 #!/bin/bash
 
 # Set parameters
-mitograph_exe="./MitoGraph_z"
+mitograph_exe="./MitoGraph"
 xy=0.0645
 z=0.2
-threshold=0.15       
-scales_min=1        
-scales_max=2.0        
-scales_count=8         
+threshold=0.1
+scales_min=1
+scales_max=1.5
+scales_count=8
 z_adaptive=true
-z_block_size=8
-root_path="Y333 ATP6 ATP3/extracted_cells_30"
+z_block_size=1
+root_path="Y333 ATP6 ATP2/extracted_cells_30/34"
 
 echo "Script started"
 echo "MitoGraph executable: $mitograph_exe"

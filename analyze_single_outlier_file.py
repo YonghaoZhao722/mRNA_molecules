@@ -427,8 +427,8 @@ def main():
     """Main analysis function"""
     
     # File path - update this to match your file location
-    file_path = "/Volumes/ExFAT/mRNA_molecules/Y333 ATP6 ATP2/interactive_batch_results/atp6_corrected_outlier_analysis_0.6_extracted_cells_conn_nonadaptive.csv"
-    output_dir = "Y333 ATP6 ATP2/interactive_batch_results"
+    file_path = "/Volumes/ExFAT/mRNA_molecules/Y333 ATP6 ATP3/interactive_batch_results/atp6_outlier_analysis_0.6_extracted_cells_30.csv"
+    output_dir = "Y333 ATP6 ATP3/interactive_batch_results"
     
     print("🔬 SINGLE OUTLIER FILE ANALYSIS")
     print("=" * 50)
