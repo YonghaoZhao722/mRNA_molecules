@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.spatial.distance import cdist
-from scipy.spatial.transform import Rotation as R
 from scipy.optimize import minimize
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -14,7 +13,8 @@ import tkinter.simpledialog as simpledialog
 import json
 import tifffile
 from skimage.measure import find_contours
-    
+import vtk
+
 class Interactive3DBatchVisualizerFixed:
     def __init__(self, root):
         self.root = root
@@ -23,9 +23,9 @@ class Interactive3DBatchVisualizerFixed:
 
         # Path settings
         self.base_dir = r'Y333 ATP6 ATP2'
-        self.skeleton_type = 'extracted_cells_conn_nonadaptive_rm'
+        self.skeleton_type = 'extracted_cells_30'
         self.skeleton_root = os.path.join(self.base_dir, self.skeleton_type)
-        self.channel = 'atp6_corrected'
+        self.channel = 'atp6_filtered'
         self.spots_root = os.path.join(self.base_dir, f'{self.channel}_spots')
         self.mask_root = os.path.join(self.base_dir, 'aligned_masks')
 
@@ -46,15 +46,16 @@ class Interactive3DBatchVisualizerFixed:
         self.distances = None
         self.current_skeleton_translation = np.array([0, 0, 0])
         
+        # VTK polylines for proper skeleton visualization
+        self.skeleton_segments = None  # Store polylines from VTK file
+        
         # Control variables
-        self.rotation_x = tk.DoubleVar(value=0.0)
-        self.rotation_y = tk.DoubleVar(value=0.0)
-        self.rotation_z = tk.DoubleVar(value=0.0)
-        self.use_y_flip = tk.BooleanVar(value=True)
+        self.use_y_flip = tk.BooleanVar(value=False)
         self.use_z_flip = tk.BooleanVar(value=False)
         self.auto_compare_yflip = tk.BooleanVar(value=True)
         self.auto_translate_skeleton = tk.BooleanVar(value=False)
         self.show_cell_outline = tk.BooleanVar(value=True)  # New: control cell outline visibility
+        self.skeleton_as_lines = tk.BooleanVar(value=True)  # New: control skeleton display mode (lines vs points)
 
         # Create interface
         self.create_interface()
@@ -184,7 +185,7 @@ class Interactive3DBatchVisualizerFixed:
         
         if not silent:
             print(f"Cell_{cell_number} spots data loading completed: {len(coords)} points")
-            print(f"Coordinate range: X=[{coords[:,1].min():.1f}, {coords[:,1].max():.1f}], Y=[{coords[:,0].min():.1f}, {coords[:,0].max():.1f}], Z=[{coords[:,2].min():.1f}, {coords[:,2].max():.1f}]")
+            print(f"Coordinate range: X=[{coords[:,1].min():.1f}, {coords[:,1].max():.1f}], Y=[{coords[:,0].min():.1f}, {coords[:,0].max():.1f}], Z=[{coords[:,2].min():.1f}, {coords[:,2].max():.3f}]")
         
         return coords, pixel_xy, pixel_z
 
@@ -479,6 +480,10 @@ class Interactive3DBatchVisualizerFixed:
                 pixel_size_xy=pixel_xy/1000  # Convert to micrometers
             )
             
+            # 2.1 Load skeleton polylines from VTK file
+            skeleton_dir = os.path.dirname(cell_info['skeleton_file'])
+            vtk_polylines = self.load_skeleton_from_vtk(skeleton_dir, cell_name)
+            
             # 3. Load cell outline data
             outline_coords = self.load_cell_outline_from_mask(image_name, cell_name, pixel_xy)
             
@@ -514,6 +519,14 @@ class Interactive3DBatchVisualizerFixed:
             self.current_skeleton = skeleton_coords.copy()
             self.original_skeleton = skeleton_coords.copy()
             
+            # Apply coordinate transformation to VTK polylines
+            self.skeleton_segments = self.apply_coordinate_transform_to_polylines(
+                vtk_polylines,
+                mapping_data=mapping_data,
+                cell_name=mapping_cell_name,
+                pixel_size_xy=pixel_xy/1000
+            )
+            
             # Process outline data for 3D visualization
             if outline_coords is not None:
                 # Create 3D outline coordinates using the center Z of the cell
@@ -542,8 +555,6 @@ class Interactive3DBatchVisualizerFixed:
             print(f"  Spots count: {len(self.original_spots)}")
             print(f"  Skeleton points count: {len(self.original_skeleton)}")
             
-            # Reset rotation
-            self.reset_rotation()
             
         except Exception as e:
             print(f"Failed to load {image_name}-{cell_name} data: {e}")
@@ -563,7 +574,6 @@ class Interactive3DBatchVisualizerFixed:
         self.create_image_selection(control_frame)
         self.create_cell_selection(control_frame)
         self.create_transform_options(control_frame)
-        self.create_rotation_controls(control_frame)
         self.create_action_buttons(control_frame)
         
         plot_frame = ttk.Frame(main_frame)
@@ -595,12 +605,13 @@ class Interactive3DBatchVisualizerFixed:
         y_flip_check = ttk.Checkbutton(transform_frame, text="Y-axis Flip", variable=self.use_y_flip, command=self.on_transform_change)
         y_flip_check.pack(anchor=tk.W)
         
-        z_flip_check = ttk.Checkbutton(transform_frame, text="Z-axis Flip", variable=self.use_z_flip, command=self.on_transform_change)
-        z_flip_check.pack(anchor=tk.W)
-        
         # Add cell outline option
         outline_check = ttk.Checkbutton(transform_frame, text="Show Cell Outline", variable=self.show_cell_outline, command=self.on_outline_toggle)
         outline_check.pack(anchor=tk.W)
+        
+        # Add skeleton display mode option
+        skeleton_lines_check = ttk.Checkbutton(transform_frame, text="Skeleton as Lines", variable=self.skeleton_as_lines, command=self.on_skeleton_mode_toggle)
+        skeleton_lines_check.pack(anchor=tk.W)
         
         # Add separator
         ttk.Separator(transform_frame, orient='horizontal').pack(fill=tk.X, pady=(10, 10))
@@ -612,43 +623,11 @@ class Interactive3DBatchVisualizerFixed:
         auto_translate_check = ttk.Checkbutton(transform_frame, text="Use skeleton auto-translation", variable=self.auto_translate_skeleton)
         auto_translate_check.pack(anchor=tk.W)
 
-    def create_rotation_controls(self, parent):
-        rotation_frame = ttk.LabelFrame(parent, text="Skeleton Rotation", padding=10)
-        rotation_frame.pack(fill=tk.X, pady=(0, 15))
-        
-        # X-axis rotation
-        x_frame = ttk.Frame(rotation_frame)
-        x_frame.pack(fill=tk.X, pady=2)
-        ttk.Label(x_frame, text="X-axis:", width=6).pack(side=tk.LEFT)
-        x_scale = ttk.Scale(x_frame, from_=-180, to=180, variable=self.rotation_x, orient=tk.HORIZONTAL, command=self.on_rotation_change)
-        x_scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
-        self.x_value_label = ttk.Label(x_frame, text="0°", width=6)
-        self.x_value_label.pack(side=tk.RIGHT)
-        
-        # Y-axis rotation
-        y_frame = ttk.Frame(rotation_frame)
-        y_frame.pack(fill=tk.X, pady=2)
-        ttk.Label(y_frame, text="Y-axis:", width=6).pack(side=tk.LEFT)
-        y_scale = ttk.Scale(y_frame, from_=-180, to=180, variable=self.rotation_y, orient=tk.HORIZONTAL, command=self.on_rotation_change)
-        y_scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
-        self.y_value_label = ttk.Label(y_frame, text="0°", width=6)
-        self.y_value_label.pack(side=tk.RIGHT)
-        
-        # Z-axis rotation
-        z_frame = ttk.Frame(rotation_frame)
-        z_frame.pack(fill=tk.X, pady=2)
-        ttk.Label(z_frame, text="Z-axis:", width=6).pack(side=tk.LEFT)
-        z_scale = ttk.Scale(z_frame, from_=-180, to=180, variable=self.rotation_z, orient=tk.HORIZONTAL, command=self.on_rotation_change)
-        z_scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
-        self.z_value_label = ttk.Label(z_frame, text="0°", width=6)
-        self.z_value_label.pack(side=tk.RIGHT)
+    
 
     def create_action_buttons(self, parent):
         button_frame = ttk.LabelFrame(parent, text="Actions", padding=10)
         button_frame.pack(fill=tk.X, pady=(0, 15))
-        
-        reset_btn = ttk.Button(button_frame, text="Reset Rotation", command=self.reset_rotation)
-        reset_btn.pack(fill=tk.X, pady=2)
         
         calculate_btn = ttk.Button(button_frame, text="Calculate Distance", command=self.calculate_and_show_results)
         calculate_btn.pack(fill=tk.X, pady=5)
@@ -696,6 +675,10 @@ class Interactive3DBatchVisualizerFixed:
         """Handle cell outline visibility toggle"""
         self.update_3d_plot()
 
+    def on_skeleton_mode_toggle(self):
+        """Handle skeleton display mode toggle"""
+        self.update_3d_plot()
+
     def update_cell_info(self):
         if self.current_cell and hasattr(self, 'cell_info_label'):
             spots_count = len(self.current_spots) if self.current_spots is not None else 0
@@ -704,26 +687,128 @@ class Interactive3DBatchVisualizerFixed:
             info_text = f"Spots: {spots_count}, Skeleton: {skeleton_count}, Outline: {outline_count}"
             self.cell_info_label.config(text=info_text)
 
-    def on_rotation_change(self, value=None):
-        self.x_value_label.config(text=f"{self.rotation_x.get():.0f}°")
-        self.y_value_label.config(text=f"{self.rotation_y.get():.0f}°")
-        self.z_value_label.config(text=f"{self.rotation_z.get():.0f}°")
-        self.update_skeleton_rotation()
-        self.update_3d_plot()
 
-    def update_skeleton_rotation(self):
-        if self.original_skeleton is None:
-            return
+    def load_skeleton_from_vtk(self, skeleton_dir, cell_name):
+        """
+        Load skeleton polylines directly from VTK file using native VTK.
+        This preserves the correct topology including loops and branches.
+        """
+        cell_base = cell_name.replace('Cell_', 'cell_').replace('cell_', '').zfill(3)
         
-        rx = np.radians(self.rotation_x.get())
-        ry = np.radians(self.rotation_y.get())
-        rz = np.radians(self.rotation_z.get())
-        rotation = R.from_euler('xyz', [rx, ry, rz])
+        # Find VTK file
+        vtk_file = None
+        possible_names = [
+            f'cell_{cell_base}_skeleton.vtk',  # Standard format: cell_001_skeleton.vtk
+            f'cell_{cell_base}.vtk',           # Alternative: cell_001.vtk
+        ]
         
-        center = np.mean(self.original_skeleton, axis=0)
-        centered_skeleton = self.original_skeleton - center
-        rotated_skeleton = rotation.apply(centered_skeleton)
-        self.current_skeleton = rotated_skeleton + center
+        for vtk_name in possible_names:
+            vtk_path = os.path.join(skeleton_dir, vtk_name)
+            if os.path.exists(vtk_path):
+                vtk_file = vtk_path
+                break
+        
+        # If not found, search for any VTK file matching the pattern
+        if not vtk_file:
+            for filename in os.listdir(skeleton_dir):
+                if filename.startswith(f'cell_{cell_base}') and filename.endswith('.vtk'):
+                    vtk_file = os.path.join(skeleton_dir, filename)
+                    break
+        
+        if not vtk_file:
+            print(f"Warning: VTK file not found for {cell_name}")
+            return None
+        
+        # Read VTK file using native VTK
+        polylines = self.extract_polylines_from_vtk(vtk_file)
+        if polylines is None:
+            return None
+        
+        print(f"Loaded {len(polylines)} skeleton polylines from VTK file")
+        return polylines
+
+    def extract_polylines_from_vtk(self, vtk_file):
+        """
+        Extract polylines from VTK file using native VTK library.
+        Returns list of polylines, each as an array of 3D points.
+        """
+        # Read VTK file
+        reader = vtk.vtkPolyDataReader()
+        reader.SetFileName(vtk_file)
+        reader.Update()
+        
+        polydata = reader.GetOutput()
+        points = polydata.GetPoints()
+        lines = polydata.GetLines()
+        
+        if points is None or lines is None:
+            print(f"Warning: No valid polyline data found in {vtk_file}")
+            return None
+        
+        # Extract all points
+        points_array = []
+        for i in range(points.GetNumberOfPoints()):
+            points_array.append(np.array(points.GetPoint(i)))
+        
+        # Extract polylines
+        lines.InitTraversal()
+        id_list = vtk.vtkIdList()
+        
+        polylines = []
+        while lines.GetNextCell(id_list):
+            line_points = []
+            for i in range(id_list.GetNumberOfIds()):
+                point_id = id_list.GetId(i)
+                line_points.append(points_array[point_id])
+            if len(line_points) > 1:  # Only include lines with multiple points
+                polylines.append(np.array(line_points))
+        
+        if len(polylines) == 0:
+            print(f"Warning: No polylines extracted from {vtk_file}")
+            return None
+        
+        return polylines
+
+    def apply_coordinate_transform_to_polylines(self, vtk_polylines, mapping_data=None, cell_name="cell_001", pixel_size_xy=0.0645):
+        """
+        Apply coordinate transformation to VTK polylines to match spots coordinate system.
+        """
+        if vtk_polylines is None:
+            return None
+        
+        try:
+            transformed_polylines = []
+            
+            for polyline in vtk_polylines:
+                if len(polyline) == 0:
+                    continue
+                
+                # Apply coordinate transformation (same logic as skeleton points)
+                transformed_polyline = polyline.copy()
+                
+                # Apply mapping offset if available
+                if mapping_data and cell_name in mapping_data:
+                    crop_info = mapping_data[cell_name]['crop_region']
+                    x_offset = crop_info['x_offset']
+                    y_offset = crop_info['y_offset']
+                    
+                    offset_x_um = x_offset * pixel_size_xy
+                    offset_y_um = y_offset * pixel_size_xy
+                    
+                    transformed_polyline[:, 0] += offset_x_um  # X offset
+                    transformed_polyline[:, 1] += offset_y_um  # Y offset
+                    # Z coordinate doesn't need offset
+                
+                transformed_polylines.append(transformed_polyline)
+            
+            print(f"Applied coordinate transform to {len(transformed_polylines)} polylines")
+            return transformed_polylines
+            
+        except Exception as e:
+            print(f"Error applying coordinate transform to polylines: {e}")
+            return vtk_polylines
+
+
 
     def update_3d_plot(self):
         self.ax.clear()
@@ -733,8 +818,17 @@ class Interactive3DBatchVisualizerFixed:
                           c='blue', s=30, alpha=0.6, label=f'Spots ({len(self.current_spots)})')
         
         if self.current_skeleton is not None and len(self.current_skeleton) > 0:
-            self.ax.scatter(self.current_skeleton[:, 0], self.current_skeleton[:, 1], self.current_skeleton[:, 2], 
-                          c='red', s=10, alpha=0.8, label=f'Skeleton ({len(self.current_skeleton)})')
+            if self.skeleton_as_lines.get() and self.skeleton_segments is not None and len(self.skeleton_segments) > 0:
+                # Use VTK polylines (correct topology)
+                for i, polyline in enumerate(self.skeleton_segments):
+                    if len(polyline) > 1:
+                        label = f'Skeleton Polylines ({len(self.skeleton_segments)})' if i == 0 else ""
+                        self.ax.plot(polyline[:, 0], polyline[:, 1], polyline[:, 2], 
+                                    c='red', linewidth=4, alpha=0.8, label=label)
+            else:
+                # Show skeleton as scatter points
+                self.ax.scatter(self.current_skeleton[:, 0], self.current_skeleton[:, 1], self.current_skeleton[:, 2], 
+                              c='red', s=10, alpha=0.8, label=f'Skeleton ({len(self.current_skeleton)})')
         
         if self.current_outline is not None and len(self.current_outline) > 0 and self.show_cell_outline.get():
             self.ax.plot(self.current_outline[:, 0], self.current_outline[:, 1], self.current_outline[:, 2], 
@@ -786,11 +880,6 @@ class Interactive3DBatchVisualizerFixed:
             self.ax.set_ylim(y_center - max_range/2, y_center + max_range/2)
             self.ax.set_zlim(z_center - max_range/2, z_center + max_range/2)
 
-    def reset_rotation(self):
-        self.rotation_x.set(0)
-        self.rotation_y.set(0)
-        self.rotation_z.set(0)
-        self.on_rotation_change()
 
     def calculate_distances_analyze_method(self):
         """
@@ -848,9 +937,8 @@ class Interactive3DBatchVisualizerFixed:
             messagebox.showwarning("Warning", "Please select a cell first")
             return
         
-        # 计算两种距离（匹配analyze_alignment.py的行为）
-        self.distances = self.calculate_distances_analyze_method()  # 用于图表显示
-        self.final_distances = self.calculate_final_distances()      # 用于最终统计
+        self.distances = self.calculate_distances_analyze_method()
+        self.final_distances = self.calculate_final_distances()
         
         if len(self.distances) == 0:
             messagebox.showwarning("Warning", "Cannot calculate distances, please check data")
@@ -901,8 +989,16 @@ class Interactive3DBatchVisualizerFixed:
             fig.colorbar(scatter, ax=ax, label='Distance to skeleton (μm)')
         
         if self.current_skeleton is not None and len(self.current_skeleton) > 0:
-            ax.scatter(self.current_skeleton[:, 0], self.current_skeleton[:, 1], 
-                      c='red', s=10, alpha=0.5, label='Skeleton')
+            if self.skeleton_as_lines.get() and self.skeleton_segments is not None and len(self.skeleton_segments) > 0:
+                # Use VTK polylines for XY projection
+                for i, polyline in enumerate(self.skeleton_segments):
+                    if len(polyline) > 1:
+                        label = 'Skeleton' if i == 0 else ""
+                        ax.plot(polyline[:, 0], polyline[:, 1], 
+                               c='red', linewidth=4, alpha=0.7, label=label)
+            else:
+                ax.scatter(self.current_skeleton[:, 0], self.current_skeleton[:, 1], 
+                          c='red', s=10, alpha=0.5, label='Skeleton')
         
         if self.current_outline is not None and len(self.current_outline) > 0 and self.show_cell_outline.get():
             ax.plot(self.current_outline[:, 0], self.current_outline[:, 1], 
@@ -981,7 +1077,6 @@ Std: {np.std(self.final_distances):.3f} μm"""
             stats_text += f"""
 
 Transform: {flip_status if flip_status else 'Original'}
-Rotation: X={self.rotation_x.get():.0f}° Y={self.rotation_y.get():.0f}° Z={self.rotation_z.get():.0f}°
 Note: Uses ALL skeleton points (no sampling) for accurate distance calculation"""
             
             ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, verticalalignment='top',
@@ -1050,15 +1145,11 @@ Note: Uses ALL skeleton points (no sampling) for accurate distance calculation""
             output_dir = os.path.join(self.base_dir, 'interactive_batch_results')
             os.makedirs(output_dir, exist_ok=True)
             
-            # 保存详细数据（使用图表显示的中心校正前数据）
             detail_data = pd.DataFrame({
                 'spot_x_um': self.spots_before_correction[:, 0],
                 'spot_y_um': self.spots_before_correction[:, 1],
                 'spot_z_um': self.spots_before_correction[:, 2],
                 'distance_to_skeleton_um': self.distances,
-                'rotation_x': self.rotation_x.get(),
-                'rotation_y': self.rotation_y.get(),
-                'rotation_z': self.rotation_z.get(),
                 'y_flip_used': self.use_y_flip.get(),
                 'z_flip_used': self.use_z_flip.get(),
                 'auto_compare_enabled': self.auto_compare_yflip.get(),
@@ -1088,9 +1179,6 @@ Note: Uses ALL skeleton points (no sampling) for accurate distance calculation""
                 'z_flip_used': self.use_z_flip.get(),
                 'auto_compare_enabled': self.auto_compare_yflip.get(),
                 'auto_translate_enabled': self.auto_translate_skeleton.get(),
-                'rotation_x': self.rotation_x.get(),
-                'rotation_y': self.rotation_y.get(),
-                'rotation_z': self.rotation_z.get(),
                 'mean_distance_pre_correction': np.mean(self.distances),
                 'median_distance_pre_correction': np.median(self.distances),
                 'std_distance_pre_correction': np.std(self.distances),
@@ -1118,7 +1206,7 @@ Note: Uses ALL skeleton points (no sampling) for accurate distance calculation""
 
     def batch_distance_analysis(self):
         """Batch analyze distance distribution of all images and cells using the fixed correct coordinate transformation method"""
-        threshold = simpledialog.askfloat("Threshold Input", "Please enter distance threshold (μm):", minvalue=0.0, initialvalue=0.6)
+        threshold = simpledialog.askfloat("Threshold Input", "Please enter distance threshold (μm):", minvalue=0.0, initialvalue=0.5)
         if threshold is None:
             return
         
@@ -1376,7 +1464,7 @@ Note: Uses ALL skeleton points (no sampling) for accurate distance calculation""
     def analyse_outliers(self):
         """Analyze outliers and display images and cells containing outliers in a new window"""
         # Ask for threshold
-        threshold = simpledialog.askfloat("Outlier Threshold Input", "Please enter outlier distance threshold (μm):", minvalue=0.0, initialvalue=0.6)
+        threshold = simpledialog.askfloat("Outlier Threshold Input", "Please enter outlier distance threshold (μm):", minvalue=0.0, initialvalue=0.5)
         if threshold is None:
             return
         
@@ -1434,6 +1522,16 @@ Note: Uses ALL skeleton points (no sampling) for accurate distance calculation""
                         skeleton = translation_result['optimal_skeleton']
                         skeleton_translation = translation_result['translation']
                     
+                    # Load VTK polylines for skeleton
+                    skeleton_dir = os.path.dirname(cell_info['skeleton_file'])
+                    vtk_polylines = self.load_skeleton_from_vtk(skeleton_dir, cell_name)
+                    skeleton_segments = self.apply_coordinate_transform_to_polylines(
+                        vtk_polylines,
+                        mapping_data=mapping_data,
+                        cell_name=mapping_cell_name,
+                        pixel_size_xy=pixel_xy/1000
+                    )
+                    
                     distances = cdist(spots, skeleton)
                     min_distances = np.min(distances, axis=1)
                     
@@ -1443,6 +1541,7 @@ Note: Uses ALL skeleton points (no sampling) for accurate distance calculation""
                         outlier_images[image_name][cell_name] = {
                             'spots': spots,
                             'skeleton': skeleton,
+                            'skeleton_segments': skeleton_segments,
                             'distances': min_distances,
                             'outlier_indices': outlier_indices,
                             'threshold': threshold,
@@ -1512,6 +1611,14 @@ Note: Uses ALL skeleton points (no sampling) for accurate distance calculation""
         cell_info_label = ttk.Label(cell_frame, text="", font=('Arial', 9))
         cell_info_label.pack(anchor=tk.W, pady=(5, 0))
         
+        # Add skeleton display options for outlier analysis
+        skeleton_frame = ttk.LabelFrame(control_frame, text="Skeleton Display", padding=10)
+        skeleton_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        outlier_skeleton_as_lines = tk.BooleanVar(value=True)
+        skeleton_lines_check = ttk.Checkbutton(skeleton_frame, text="Skeleton as Lines", variable=outlier_skeleton_as_lines)
+        skeleton_lines_check.pack(anchor=tk.W)
+        
         plot_frame = ttk.Frame(main_frame)
         plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         
@@ -1557,8 +1664,18 @@ Note: Uses ALL skeleton points (no sampling) for accurate distance calculation""
                                  c='red', s=50, alpha=0.8, label=f'Outlier spots ({len(outlier_indices)})')
             
             if len(skeleton) > 0:
-                outlier_ax.scatter(skeleton[:, 0], skeleton[:, 1], skeleton[:, 2], 
-                                 c='gray', s=10, alpha=0.5, label=f'Skeleton ({len(skeleton)})')
+                skeleton_segments = cell_data.get('skeleton_segments', None)
+                if outlier_skeleton_as_lines.get() and skeleton_segments is not None and len(skeleton_segments) > 0:
+                    # Use VTK polylines for skeleton display
+                    for i, polyline in enumerate(skeleton_segments):
+                        if len(polyline) > 1:
+                            label = f'Skeleton Polylines ({len(skeleton_segments)})' if i == 0 else ""
+                            outlier_ax.plot(polyline[:, 0], polyline[:, 1], polyline[:, 2], 
+                                           c='gray', linewidth=4, alpha=0.7, label=label)
+                else:
+                    # Show skeleton as scatter points
+                    outlier_ax.scatter(skeleton[:, 0], skeleton[:, 1], skeleton[:, 2], 
+                                     c='gray', s=10, alpha=0.5, label=f'Skeleton ({len(skeleton)})')
             
             outlier_ax.set_xlabel('X (μm)')
             outlier_ax.set_ylabel('Y (μm)')
@@ -1598,6 +1715,7 @@ Note: Uses ALL skeleton points (no sampling) for accurate distance calculation""
         
         image_combo.bind('<<ComboboxSelected>>', update_outlier_cell_selection)
         cell_combo.bind('<<ComboboxSelected>>', update_outlier_plot)
+        skeleton_lines_check.config(command=update_outlier_plot)
 
         if outlier_images:
             first_image = list(outlier_images.keys())[0]

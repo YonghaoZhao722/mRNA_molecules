@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<VTKFile type="ImageData" version="0.1" byte_order="LittleEndian" header_type="UInt32" compressor="vtkZLibDataCompressor">
+  <ImageData WholeExtent="0 49 0 49 0 49" Origin="-4.756512718197483 -2.527439529159288 -1.7056748703311662" Spacing="0.19757145435280637 0.09982216021199565 0.06993091807429397" Direction="1 0 0 0 1 0 0 0 1">
+    <Piece Extent="0 49 0 49 0 49"                                                    >
+      <PointData Scalars="Volume">
+        <DataArray type="UInt8" Name="Volume" format="appended" RangeMin="0"                    RangeMax="1"                    offset="0"                   />
+      </PointData>
+      <CellData>
+      </CellData>
+    </Piece>
+  </ImageData>
+  <AppendedData encoding="base64">
+   _BAAAAACAAABIaAAAXgAAAJMBAACaAQAASQAAAA==eJzt1TEKwCAUBUHf/S8di4CQRgMmwmem33pbAwAAAAAAAAAAAAAAAAAAAAAAAACgtHSKrwoAgLncFIqdBQCwLoNCUbwAgF8kbyelUCjOFgCUkweFQqEAtrsAbtYDaXic7ZgxjsMwEMRy//906oO0sumMIysia7EIjB0Qeb1kK/4aNDQ0NJ5piIj8LO0kHq0iNrqChoaGBjQu7JWIyDrQgQut6EjpCwOlEmqlNipFQ+PpRiEkjUoIGqVwwbDhRGQp8FrRgeObiHcXT3UlBBtuIBSKhsZnRlfYOBO/1XBYEBEJgccnMHA2XMQYChr7GT0hG30TM9GGE5HfB+8IHp/AwNlw2OgpY6FjHAgadxqtEDc6wkP/G9y+4eh7EdkDvAt4TAIDZ8NhY5WGOxL2NRKfw4Yjgg0nIpPBN453AY9JYOBsOGzYcKsbic9hwxHBhhORyeAbx7uAxyQwcDYcNi403JSUORS4MeNn2HApoyvYcPS9iDwBfK/4xvEu4DEJDJwNhw0bbnWjEWw4ZNhwIjIbfK/4xvEu4DEJDJwNhw0bbnWjEWw4ZNhwIjIbfK/4xvEu4DEJDJwNhw0bbnWjEWw4ZGzfcOdfishN4CskN/5fOOvgMQkMnA2HDRtudaMRbDhk2HCnX4rITeArbG78DepRJYF4nO3WQY7CMBBEUbj/pWcx0mhCutsuU8Qx/n/NWyBIpx6Puue/Gh89gy70Clrk/PkWCUVFYlCQDOQkFwkpQEJKEZEaBKQFDKIJdDHja3xAnMCA0P8j7v+hLEIw8DwVJAMDhyEzFQhJDQbO7h/p+CQRfSj5KVSe8SPoNfIxMRw4NpwsBjacDByiBfYVjp+DDacANhwReZOfQuUZP4JeIx8Tw4Fjw8mCDbe6cPwcbDgFsOGIaHLKM34EvUY+JoYDx4aTBRtudeH4OdhwCmDDEdHklGf8CHqNfEwMB44NZxElsIy+W87EjQUbTgFftuGIaIPkuyAfE8OBY8NZRAkmbTjERBEANpwmrtpwRERR8h2Rj4/hwLHhLKIEiP1EBAYGllXEgA1HRORIPj6GA7f7hjOJCiAQbRECNpwGiIgWSj1w+k2U7658qjOw1oZDIN4TMbCKBDhFBthwRETvpt9E+e7Kpzp9HVzxykEg9hEZMIoUEBHR/Zv4/kAgENcIIiKi3/TXBwKBcAoiIqL7pr/TEIhVBRERUV8/lAEhw3ic7dYxCgAwCARB/f+n06YVTECZ6be+i9gpLwpFVwEAbFDff8XLAgBgsPrz+VEAAAAAAAAAAAAAAAAAAAAAAAAAADDQAfwUAOA=
+  </AppendedData>
+</VTKFile>
