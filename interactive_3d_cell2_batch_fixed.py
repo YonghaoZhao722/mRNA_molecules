@@ -23,7 +23,7 @@ class Interactive3DBatchVisualizerFixed:
 
         # Path settings
         self.base_dir = r'Y333 ATP6 ATP2'
-        self.skeleton_type = 'extracted_cells_30'
+        self.skeleton_type = 'extracted_cells'
         self.skeleton_root = os.path.join(self.base_dir, self.skeleton_type)
         self.channel = 'atp6_filtered'
         self.spots_root = os.path.join(self.base_dir, f'{self.channel}_spots')
@@ -54,7 +54,7 @@ class Interactive3DBatchVisualizerFixed:
         self.use_z_flip = tk.BooleanVar(value=False)
         self.auto_compare_yflip = tk.BooleanVar(value=True)
         self.auto_translate_skeleton = tk.BooleanVar(value=False)
-        self.show_cell_outline = tk.BooleanVar(value=True)  # New: control cell outline visibility
+        self.show_cell_outline = tk.BooleanVar(value=False)  # New: control cell outline visibility
         self.skeleton_as_lines = tk.BooleanVar(value=True)  # New: control skeleton display mode (lines vs points)
 
         # Create interface
@@ -316,9 +316,10 @@ class Interactive3DBatchVisualizerFixed:
         
         # Update image dropdown
         if hasattr(self, 'image_combo'):
-            self.image_combo['values'] = list(self.available_images.keys())
+            sorted_image_names = sorted(list(self.available_images.keys()))
+            self.image_combo['values'] = sorted_image_names
             if self.available_images:
-                self.selected_image.set(list(self.available_images.keys())[0])
+                self.selected_image.set(sorted_image_names[0])
 
     def find_mask_file_for_image(self, image_name):
         """Find the corresponding mask file for a given image name"""
@@ -632,9 +633,6 @@ class Interactive3DBatchVisualizerFixed:
         calculate_btn = ttk.Button(button_frame, text="Calculate Distance", command=self.calculate_and_show_results)
         calculate_btn.pack(fill=tk.X, pady=5)
         
-        save_btn = ttk.Button(button_frame, text="Save Results", command=self.save_results)
-        save_btn.pack(fill=tk.X, pady=2)
-        
         batch_btn = ttk.Button(button_frame, text="Batch Distance Analysis", command=self.batch_distance_analysis)
         batch_btn.pack(fill=tk.X, pady=5)
         
@@ -724,7 +722,6 @@ class Interactive3DBatchVisualizerFixed:
         if polylines is None:
             return None
         
-        print(f"Loaded {len(polylines)} skeleton polylines from VTK file")
         return polylines
 
     def extract_polylines_from_vtk(self, vtk_file):
@@ -801,7 +798,6 @@ class Interactive3DBatchVisualizerFixed:
                 
                 transformed_polylines.append(transformed_polyline)
             
-            print(f"Applied coordinate transform to {len(transformed_polylines)} polylines")
             return transformed_polylines
             
         except Exception as e:
@@ -1133,76 +1129,6 @@ Note: Uses ALL skeleton points (no sampling) for accurate distance calculation""
                 'median_distance': median_distance
             }
 
-    def save_results(self):
-        if not hasattr(self, 'distances') or len(self.distances) == 0:
-            messagebox.showwarning("Warning", "No results to save, please calculate distance analysis first")
-            return
-        if not self.current_cell or not self.current_image:
-            messagebox.showwarning("Warning", "No cell or image selected")
-            return
-        
-        try:
-            output_dir = os.path.join(self.base_dir, 'interactive_batch_results')
-            os.makedirs(output_dir, exist_ok=True)
-            
-            detail_data = pd.DataFrame({
-                'spot_x_um': self.spots_before_correction[:, 0],
-                'spot_y_um': self.spots_before_correction[:, 1],
-                'spot_z_um': self.spots_before_correction[:, 2],
-                'distance_to_skeleton_um': self.distances,
-                'y_flip_used': self.use_y_flip.get(),
-                'z_flip_used': self.use_z_flip.get(),
-                'auto_compare_enabled': self.auto_compare_yflip.get(),
-                'auto_translate_enabled': self.auto_translate_skeleton.get(),
-                'image_name': self.current_image,
-                'cell_name': self.current_cell
-            })
-            detail_file = os.path.join(output_dir, f'{self.current_image}_{self.current_cell}_interactive_analysis_{self.skeleton_type}.csv')
-            detail_data.to_csv(detail_file, index=False)
-            
-            # 保存skeleton数据
-            skeleton_data = pd.DataFrame({
-                'skeleton_x_um': self.current_skeleton[:, 0],
-                'skeleton_y_um': self.current_skeleton[:, 1],
-                'skeleton_z_um': self.current_skeleton[:, 2],
-            })
-            skeleton_file = os.path.join(output_dir, f'{self.current_image}_{self.current_cell}_rotated_skeleton_{self.skeleton_type}.csv')
-            skeleton_data.to_csv(skeleton_file, index=False)
-            
-            # 保存摘要
-            summary_data = {
-                'image_name': self.current_image,
-                'cell_name': self.current_cell,
-                'num_spots': len(self.spots_before_correction),
-                'num_skeleton_points': len(self.current_skeleton),
-                'y_flip_used': self.use_y_flip.get(),
-                'z_flip_used': self.use_z_flip.get(),
-                'auto_compare_enabled': self.auto_compare_yflip.get(),
-                'auto_translate_enabled': self.auto_translate_skeleton.get(),
-                'mean_distance_pre_correction': np.mean(self.distances),
-                'median_distance_pre_correction': np.median(self.distances),
-                'std_distance_pre_correction': np.std(self.distances),
-                'min_distance_pre_correction': np.min(self.distances),
-                'max_distance_pre_correction': np.max(self.distances)
-            }
-            
-            # 如果有最终统计数据，也加入
-            if hasattr(self, 'final_distances') and len(self.final_distances) > 0:
-                summary_data.update({
-                    'mean_distance_post_correction': np.mean(self.final_distances),
-                    'median_distance_post_correction': np.median(self.final_distances),
-                    'std_distance_post_correction': np.std(self.final_distances),
-                    'min_distance_post_correction': np.min(self.final_distances),
-                    'max_distance_post_correction': np.max(self.final_distances)
-                })
-            
-            summary_df = pd.DataFrame([summary_data])
-            summary_file = os.path.join(output_dir, f'{self.current_image}_{self.current_cell}_summary_{self.skeleton_type}.csv')
-            summary_df.to_csv(summary_file, index=False)
-            
-            messagebox.showinfo("Success", f"Results saved to:\n{output_dir}")
-        except Exception as e:
-            messagebox.showerror("Error", f"Save failed: {str(e)}")
 
     def batch_distance_analysis(self):
         """Batch analyze distance distribution of all images and cells using the fixed correct coordinate transformation method"""
@@ -1596,7 +1522,7 @@ Note: Uses ALL skeleton points (no sampling) for accurate distance calculation""
         outlier_selected_image = tk.StringVar()
         ttk.Label(image_frame, text="Select Image:").pack(anchor=tk.W)
         image_combo = ttk.Combobox(image_frame, textvariable=outlier_selected_image, 
-                                  values=list(outlier_images.keys()), state="readonly", width=20)
+                                  values=sorted(list(outlier_images.keys())), state="readonly", width=20)
         image_combo.pack(fill=tk.X, pady=5)
         
         cell_frame = ttk.LabelFrame(control_frame, text="Cell Selection", padding=10)
@@ -1718,7 +1644,7 @@ Note: Uses ALL skeleton points (no sampling) for accurate distance calculation""
         skeleton_lines_check.config(command=update_outlier_plot)
 
         if outlier_images:
-            first_image = list(outlier_images.keys())[0]
+            first_image = sorted(list(outlier_images.keys()))[0]
             outlier_selected_image.set(first_image)
             update_outlier_cell_selection()
         

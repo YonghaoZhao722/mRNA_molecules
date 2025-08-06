@@ -411,8 +411,8 @@ def filter_spots_in_file(input_file: str, output_file: str) -> Dict[str, int]:
 def main():
     """Main function to process all spot files."""
     # Define input and output directories
-    input_dir = "/Volumes/ExFAT/mRNA_molecules/Y333 ATP6 ATP2/atp6_corrected_spots"
-    output_dir = "/Volumes/ExFAT/mRNA_molecules/Y333 ATP6 ATP2/atp6_filtered_spots"
+    input_dir = "Y333 ATP6 TIM50/atp6_spots"
+    output_dir = "Y333 ATP6 TIM50/atp6_filtered_spots"
     
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)

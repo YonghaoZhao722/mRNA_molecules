@@ -13,6 +13,8 @@ repos/MitoGraph/
 AutoOutline/
 *.txt
 *.tmp
+*.csv
+/Archive/
 
 # Ignore specific directories
 Y333 ATP6 ATP2/
