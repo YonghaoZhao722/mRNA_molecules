@@ -3,12 +3,12 @@ $mitographExe = ".\MitoGraph.exe"
 $xy = 0.0645
 $z = 0.2
 $threshold = 0.15       
-$scalesMin = 1        
-$scalesMax = 2.0        
+$scalesMin = 1.1        
+$scalesMax = 1.5        
 $scalesCount = 8         
 $zAdaptive = $true
-$zBlockSize = 5
-$rootPath = "Y333 ATP6 ATP3\extracted_cells_30"
+$zBlockSize = 8
+$rootPath = "Y333 ATP6 ATP2\extracted_cells_dw_30"
 
 Write-Host "Script started"
 Write-Host "MitoGraph executable: $mitographExe"

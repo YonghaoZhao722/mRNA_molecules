@@ -23,7 +23,7 @@ class Interactive3DBatchVisualizerFixed:
 
         # Path settings
         self.base_dir = r'Y333 ATP6 ATP2'
-        self.skeleton_type = 'extracted_cells'
+        self.skeleton_type = 'extracted_cells_dw_30'
         self.skeleton_root = os.path.join(self.base_dir, self.skeleton_type)
         self.channel = 'atp6_filtered'
         self.spots_root = os.path.join(self.base_dir, f'{self.channel}_spots')
@@ -44,7 +44,7 @@ class Interactive3DBatchVisualizerFixed:
         self.current_spots = None
         self.current_outline = None  # New: store cell outline data
         self.distances = None
-        self.current_skeleton_translation = np.array([0, 0, 0])
+
         
         # VTK polylines for proper skeleton visualization
         self.skeleton_segments = None  # Store polylines from VTK file
@@ -52,8 +52,7 @@ class Interactive3DBatchVisualizerFixed:
         # Control variables
         self.use_y_flip = tk.BooleanVar(value=False)
         self.use_z_flip = tk.BooleanVar(value=False)
-        self.auto_compare_yflip = tk.BooleanVar(value=True)
-        self.auto_translate_skeleton = tk.BooleanVar(value=False)
+
         self.show_cell_outline = tk.BooleanVar(value=False)  # New: control cell outline visibility
         self.skeleton_as_lines = tk.BooleanVar(value=True)  # New: control skeleton display mode (lines vs points)
 
@@ -73,7 +72,7 @@ class Interactive3DBatchVisualizerFixed:
         Fix: Properly handle cases where some cells have no spots data
         """
         # Read file to find SPOTS section
-        with open(file_path, 'r') as f:
+        with open(file_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
         
         # Find pixel size information
@@ -298,18 +297,16 @@ class Interactive3DBatchVisualizerFixed:
                                 'spots_file': matched_spot,
                                 'skeleton_file': os.path.join(image_path, skel_file)
                             }
-                            print(f"Found {image_folder}-{cell_name} (verified with {len(test_coords)} spots)")
                         else:
-                            print(f"Skipping {image_folder}-{cell_name}: spots data is empty")
+                            pass
                             
                     except ValueError as e:
                         # If "no spots data" exception is thrown, skip this cell
-                        print(f"Skipping {image_folder}-{cell_name}: {str(e)}")
+                        pass
                     except Exception as e:
-                        print(f"Error checking spots file for {cell_name}: {e}")
-                        
+                        pass
                 except Exception as e:
-                    print(f"Failed to parse skeleton filename {skel_file}: {e}")
+                    pass
             
             if image_cells:
                 self.available_images[image_folder] = image_cells
@@ -613,18 +610,6 @@ class Interactive3DBatchVisualizerFixed:
         # Add skeleton display mode option
         skeleton_lines_check = ttk.Checkbutton(transform_frame, text="Skeleton as Lines", variable=self.skeleton_as_lines, command=self.on_skeleton_mode_toggle)
         skeleton_lines_check.pack(anchor=tk.W)
-        
-        # Add separator
-        ttk.Separator(transform_frame, orient='horizontal').pack(fill=tk.X, pady=(10, 10))
-        
-        # Batch analysis options
-        ttk.Label(transform_frame, text="Batch Analysis Options:", font=('Arial', 9, 'bold')).pack(anchor=tk.W)
-        auto_compare_check = ttk.Checkbutton(transform_frame, text="Auto Y-flip comparison", variable=self.auto_compare_yflip)
-        auto_compare_check.pack(anchor=tk.W)
-        auto_translate_check = ttk.Checkbutton(transform_frame, text="Use skeleton auto-translation", variable=self.auto_translate_skeleton)
-        auto_translate_check.pack(anchor=tk.W)
-
-    
 
     def create_action_buttons(self, parent):
         button_frame = ttk.LabelFrame(parent, text="Actions", padding=10)
@@ -666,7 +651,7 @@ class Interactive3DBatchVisualizerFixed:
     def on_transform_change(self):
         if self.current_image and self.current_cell:
             self.load_cell_data_analyze_method(self.current_image, self.current_cell)
-            self.current_skeleton_translation = np.array([0, 0, 0])
+    
             self.update_3d_plot()
 
     def on_outline_toggle(self):
@@ -933,6 +918,15 @@ class Interactive3DBatchVisualizerFixed:
             messagebox.showwarning("Warning", "Please select a cell first")
             return
         
+        # Ask for threshold value first
+        threshold = simpledialog.askfloat("Threshold Input", "Please enter distance threshold (μm):", 
+                                        minvalue=0.0, initialvalue=0.5)
+        if threshold is None:
+            return  # User cancelled, don't proceed
+        
+        # Store threshold for use in XY projection
+        self.current_threshold = threshold
+        
         self.distances = self.calculate_distances_analyze_method()
         self.final_distances = self.calculate_final_distances()
         
@@ -965,24 +959,161 @@ class Interactive3DBatchVisualizerFixed:
         xy_frame = ttk.Frame(result_notebook)
         result_notebook.add(xy_frame, text="XY Projection")
         
+        xz_frame = ttk.Frame(result_notebook)
+        result_notebook.add(xz_frame, text="XZ Projection")
+        
+        yz_frame = ttk.Frame(result_notebook)
+        result_notebook.add(yz_frame, text="YZ Projection")
+        
         dist_frame = ttk.Frame(result_notebook)
         result_notebook.add(dist_frame, text="Distance Distribution")
         
         self.create_xy_projection_in_window(xy_frame)
+        self.create_xz_projection_in_window(xz_frame)
+        self.create_yz_projection_in_window(yz_frame)
         self.create_distance_distribution_in_window(dist_frame)
+        
+        # Add "Export All Projections" button at the bottom
+        export_all_frame = ttk.Frame(result_window)
+        export_all_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        def export_all_projections():
+            try:
+                output_dir = os.path.join(self.base_dir, 'interactive_batch_results')
+                os.makedirs(output_dir, exist_ok=True)
+                
+                exported_files = []
+                
+                # Export XY projection
+                self.export_single_projection('XY', output_dir, exported_files)
+                
+                # Export XZ projection  
+                self.export_single_projection('XZ', output_dir, exported_files)
+                
+                # Export YZ projection
+                self.export_single_projection('YZ', output_dir, exported_files)
+                
+                files_list = '\n'.join([f"- {f}" for f in exported_files])
+                messagebox.showinfo("Export All Successful", 
+                    f"All projections exported to:\n{output_dir}\n\nFiles:\n{files_list}")
+            
+            except Exception as e:
+                messagebox.showerror("Export All Error", f"Failed to export all projections:\n{str(e)}")
+        
+        export_all_btn = ttk.Button(export_all_frame, text="Export All Projections as PDF", command=export_all_projections)
+        export_all_btn.pack(side=tk.RIGHT, padx=5)
         
         result_notebook.select(0)
         result_window.lift()
         result_window.focus_force()
 
+    def export_single_projection(self, projection_type, output_dir, exported_files):
+        """Helper method to export a single projection as PDF"""
+        try:
+            from matplotlib.backends.backend_pdf import PdfPages
+            
+            fig = Figure(figsize=(10, 8), dpi=100)
+            ax = fig.add_subplot(111)
+            
+            threshold = getattr(self, 'current_threshold', 0.5)
+            
+            if self.current_spots is not None and len(self.current_spots) > 0:
+                within_threshold = self.distances < threshold
+                
+                if projection_type == 'XY':
+                    x_coord, y_coord = 0, 1
+                    xlabel, ylabel = 'X (μm)', 'Y (μm)'
+                elif projection_type == 'XZ':
+                    x_coord, y_coord = 0, 2
+                    xlabel, ylabel = 'X (μm)', 'Z (μm)'
+                elif projection_type == 'YZ':
+                    x_coord, y_coord = 1, 2
+                    xlabel, ylabel = 'Y (μm)', 'Z (μm)'
+                
+                # Plot spots within threshold in blue
+                if np.any(within_threshold):
+                    ax.scatter(self.current_spots[within_threshold, x_coord], self.current_spots[within_threshold, y_coord], 
+                              c='blue', s=50, alpha=0.7, label=f'Within threshold (<{threshold}μm)')
+                
+                # Plot spots exceeding threshold in red
+                if np.any(~within_threshold):
+                    ax.scatter(self.current_spots[~within_threshold, x_coord], self.current_spots[~within_threshold, y_coord], 
+                              c='red', s=50, alpha=0.7, label=f'Exceeds threshold (≥{threshold}μm)')
+            
+            if self.current_skeleton is not None and len(self.current_skeleton) > 0:
+                if self.skeleton_as_lines.get() and self.skeleton_segments is not None and len(self.skeleton_segments) > 0:
+                    for i, polyline in enumerate(self.skeleton_segments):
+                        if len(polyline) > 1:
+                            label = 'Skeleton' if i == 0 else ""
+                            ax.plot(polyline[:, x_coord], polyline[:, y_coord], 
+                                   c='grey', linewidth=4, alpha=0.7, label=label)
+                else:
+                    ax.scatter(self.current_skeleton[:, x_coord], self.current_skeleton[:, y_coord], 
+                              c='grey', s=10, alpha=0.5, label='Skeleton')
+            
+            if self.current_outline is not None and len(self.current_outline) > 0 and self.show_cell_outline.get():
+                ax.plot(self.current_outline[:, x_coord], self.current_outline[:, y_coord], 
+                        c='black', linewidth=2, alpha=0.7, label='Cell Outline')
+            
+            ax.set_xlabel(xlabel)
+            ax.set_ylabel(ylabel)
+            
+            cell_title = self.current_cell if self.current_cell else "Unknown Cell"
+            image_title = self.current_image if self.current_image else "Unknown Image"
+            flip_status = ""
+            if self.use_y_flip.get():
+                flip_status += " (Y-flipped)"
+            if self.use_z_flip.get():
+                flip_status += " (Z-flipped)"
+            
+            ax.set_title(f'{self.channel.upper()} - {image_title} - {cell_title} - {projection_type} Projection{flip_status}')
+            
+            if ((self.current_spots is not None and len(self.current_spots) > 0) or
+                (self.current_skeleton is not None and len(self.current_skeleton) > 0) or 
+                (self.current_outline is not None and len(self.current_outline) > 0 and self.show_cell_outline.get())):
+                ax.legend()
+            
+            ax.grid(True, alpha=0.3)
+            ax.axis('equal')
+            
+            filename = f'{self.channel}_{projection_type}_projection_{self.current_image}_{self.current_cell}_{self.skeleton_type}.pdf'
+            filepath = os.path.join(output_dir, filename)
+            
+            fig.savefig(filepath, format='pdf', bbox_inches='tight', dpi=300)
+            exported_files.append(filename)
+            
+        except Exception as e:
+            print(f"Error exporting {projection_type} projection: {e}")
+            raise e
+
     def create_xy_projection_in_window(self, parent_frame):
+        # Create frame for plot and export button
+        plot_frame = ttk.Frame(parent_frame)
+        plot_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Export button frame
+        button_frame = ttk.Frame(plot_frame)
+        button_frame.pack(fill=tk.X, padx=5, pady=5)
+        
         fig = Figure(figsize=(10, 8), dpi=100)
         ax = fig.add_subplot(111)
         
+        # Use the threshold that was set in calculate_and_show_results
+        threshold = getattr(self, 'current_threshold', 0.5)
+        
         if self.current_spots is not None and len(self.current_spots) > 0:
-            scatter = ax.scatter(self.current_spots[:, 0], self.current_spots[:, 1], 
-                               c=self.distances, cmap='viridis', s=50, alpha=0.7)
-            fig.colorbar(scatter, ax=ax, label='Distance to skeleton (μm)')
+            # Create boolean mask for threshold
+            within_threshold = self.distances < threshold
+            
+            # Plot spots within threshold in blue
+            if np.any(within_threshold):
+                ax.scatter(self.current_spots[within_threshold, 0], self.current_spots[within_threshold, 1], 
+                          c='blue', s=50, alpha=0.7, label=f'Within threshold (<{threshold}μm)')
+            
+            # Plot spots exceeding threshold in red
+            if np.any(~within_threshold):
+                ax.scatter(self.current_spots[~within_threshold, 0], self.current_spots[~within_threshold, 1], 
+                          c='red', s=50, alpha=0.7, label=f'Exceeds threshold (≥{threshold}μm)')
         
         if self.current_skeleton is not None and len(self.current_skeleton) > 0:
             if self.skeleton_as_lines.get() and self.skeleton_segments is not None and len(self.skeleton_segments) > 0:
@@ -991,10 +1122,10 @@ class Interactive3DBatchVisualizerFixed:
                     if len(polyline) > 1:
                         label = 'Skeleton' if i == 0 else ""
                         ax.plot(polyline[:, 0], polyline[:, 1], 
-                               c='red', linewidth=4, alpha=0.7, label=label)
+                               c='grey', linewidth=4, alpha=0.7, label=label)
             else:
                 ax.scatter(self.current_skeleton[:, 0], self.current_skeleton[:, 1], 
-                          c='red', s=10, alpha=0.5, label='Skeleton')
+                          c='grey', s=10, alpha=0.5, label='Skeleton')
         
         if self.current_outline is not None and len(self.current_outline) > 0 and self.show_cell_outline.get():
             ax.plot(self.current_outline[:, 0], self.current_outline[:, 1], 
@@ -1013,16 +1144,211 @@ class Interactive3DBatchVisualizerFixed:
         
         ax.set_title(f'{self.channel.upper()} - {image_title} - {cell_title} - XY Projection{flip_status}')
         
-        if ((self.current_skeleton is not None and len(self.current_skeleton) > 0) or 
+        # Show legend if there are any elements with labels (spots, skeleton, or outline)
+        if ((self.current_spots is not None and len(self.current_spots) > 0) or
+            (self.current_skeleton is not None and len(self.current_skeleton) > 0) or 
             (self.current_outline is not None and len(self.current_outline) > 0 and self.show_cell_outline.get())):
             ax.legend()
         
         ax.grid(True, alpha=0.3)
         ax.axis('equal')
         
-        canvas = FigureCanvasTkAgg(fig, parent_frame)
+        canvas = FigureCanvasTkAgg(fig, plot_frame)
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         canvas.draw()
+        
+        # Export button
+        def export_xy_pdf():
+            try:
+                output_dir = os.path.join(self.base_dir, 'interactive_batch_results')
+                os.makedirs(output_dir, exist_ok=True)
+                
+                filename = f'{self.channel}_XY_projection_{self.current_image}_{self.current_cell}_{self.skeleton_type}.pdf'
+                filepath = os.path.join(output_dir, filename)
+                
+                fig.savefig(filepath, format='pdf', bbox_inches='tight', dpi=300)
+                messagebox.showinfo("Export Successful", f"XY projection saved to:\n{filepath}")
+            except Exception as e:
+                messagebox.showerror("Export Error", f"Failed to export XY projection:\n{str(e)}")
+        
+        export_btn = ttk.Button(button_frame, text="Export XY Projection as PDF", command=export_xy_pdf)
+        export_btn.pack(side=tk.RIGHT, padx=5)
+
+    def create_xz_projection_in_window(self, parent_frame):
+        # Create frame for plot and export button
+        plot_frame = ttk.Frame(parent_frame)
+        plot_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Export button frame
+        button_frame = ttk.Frame(plot_frame)
+        button_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        fig = Figure(figsize=(10, 8), dpi=100)
+        ax = fig.add_subplot(111)
+        
+        # Use the threshold that was set in calculate_and_show_results
+        threshold = getattr(self, 'current_threshold', 0.5)
+        
+        if self.current_spots is not None and len(self.current_spots) > 0:
+            # Create boolean mask for threshold
+            within_threshold = self.distances < threshold
+            
+            # Plot spots within threshold in blue (using X and Z coordinates)
+            if np.any(within_threshold):
+                ax.scatter(self.current_spots[within_threshold, 0], self.current_spots[within_threshold, 2], 
+                          c='blue', s=50, alpha=0.7, label=f'Within threshold (<{threshold}μm)')
+            
+            # Plot spots exceeding threshold in red (using X and Z coordinates)
+            if np.any(~within_threshold):
+                ax.scatter(self.current_spots[~within_threshold, 0], self.current_spots[~within_threshold, 2], 
+                          c='red', s=50, alpha=0.7, label=f'Exceeds threshold (≥{threshold}μm)')
+        
+        if self.current_skeleton is not None and len(self.current_skeleton) > 0:
+            if self.skeleton_as_lines.get() and self.skeleton_segments is not None and len(self.skeleton_segments) > 0:
+                # Use VTK polylines for XZ projection
+                for i, polyline in enumerate(self.skeleton_segments):
+                    if len(polyline) > 1:
+                        label = 'Skeleton' if i == 0 else ""
+                        ax.plot(polyline[:, 0], polyline[:, 2], 
+                               c='grey', linewidth=4, alpha=0.7, label=label)
+            else:
+                ax.scatter(self.current_skeleton[:, 0], self.current_skeleton[:, 2], 
+                          c='grey', s=10, alpha=0.5, label='Skeleton')
+        
+        if self.current_outline is not None and len(self.current_outline) > 0 and self.show_cell_outline.get():
+            ax.plot(self.current_outline[:, 0], self.current_outline[:, 2], 
+                    c='black', linewidth=2, alpha=0.7, label='Cell Outline')
+        
+        ax.set_xlabel('X (μm)')
+        ax.set_ylabel('Z (μm)')
+        
+        cell_title = self.current_cell if self.current_cell else "Unknown Cell"
+        image_title = self.current_image if self.current_image else "Unknown Image"
+        flip_status = ""
+        if self.use_y_flip.get():
+            flip_status += " (Y-flipped)"
+        if self.use_z_flip.get():
+            flip_status += " (Z-flipped)"
+        
+        ax.set_title(f'{self.channel.upper()} - {image_title} - {cell_title} - XZ Projection{flip_status}')
+        
+        # Show legend if there are any elements with labels (spots, skeleton, or outline)
+        if ((self.current_spots is not None and len(self.current_spots) > 0) or
+            (self.current_skeleton is not None and len(self.current_skeleton) > 0) or 
+            (self.current_outline is not None and len(self.current_outline) > 0 and self.show_cell_outline.get())):
+            ax.legend()
+        
+        ax.grid(True, alpha=0.3)
+        ax.axis('equal')
+        
+        canvas = FigureCanvasTkAgg(fig, plot_frame)
+        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        canvas.draw()
+        
+        # Export button
+        def export_xz_pdf():
+            try:
+                output_dir = os.path.join(self.base_dir, 'interactive_batch_results')
+                os.makedirs(output_dir, exist_ok=True)
+                
+                filename = f'{self.channel}_XZ_projection_{self.current_image}_{self.current_cell}_{self.skeleton_type}.pdf'
+                filepath = os.path.join(output_dir, filename)
+                
+                fig.savefig(filepath, format='pdf', bbox_inches='tight', dpi=300)
+                messagebox.showinfo("Export Successful", f"XZ projection saved to:\n{filepath}")
+            except Exception as e:
+                messagebox.showerror("Export Error", f"Failed to export XZ projection:\n{str(e)}")
+        
+        export_btn = ttk.Button(button_frame, text="Export XZ Projection as PDF", command=export_xz_pdf)
+        export_btn.pack(side=tk.RIGHT, padx=5)
+
+    def create_yz_projection_in_window(self, parent_frame):
+        # Create frame for plot and export button
+        plot_frame = ttk.Frame(parent_frame)
+        plot_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Export button frame
+        button_frame = ttk.Frame(plot_frame)
+        button_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        fig = Figure(figsize=(10, 8), dpi=100)
+        ax = fig.add_subplot(111)
+        
+        # Use the threshold that was set in calculate_and_show_results
+        threshold = getattr(self, 'current_threshold', 0.5)
+        
+        if self.current_spots is not None and len(self.current_spots) > 0:
+            # Create boolean mask for threshold
+            within_threshold = self.distances < threshold
+            
+            # Plot spots within threshold in blue (using Y and Z coordinates)
+            if np.any(within_threshold):
+                ax.scatter(self.current_spots[within_threshold, 1], self.current_spots[within_threshold, 2], 
+                          c='blue', s=50, alpha=0.7, label=f'Within threshold (<{threshold}μm)')
+            
+            # Plot spots exceeding threshold in red (using Y and Z coordinates)
+            if np.any(~within_threshold):
+                ax.scatter(self.current_spots[~within_threshold, 1], self.current_spots[~within_threshold, 2], 
+                          c='red', s=50, alpha=0.7, label=f'Exceeds threshold (≥{threshold}μm)')
+        
+        if self.current_skeleton is not None and len(self.current_skeleton) > 0:
+            if self.skeleton_as_lines.get() and self.skeleton_segments is not None and len(self.skeleton_segments) > 0:
+                # Use VTK polylines for YZ projection
+                for i, polyline in enumerate(self.skeleton_segments):
+                    if len(polyline) > 1:
+                        label = 'Skeleton' if i == 0 else ""
+                        ax.plot(polyline[:, 1], polyline[:, 2], 
+                               c='grey', linewidth=4, alpha=0.7, label=label)
+            else:
+                ax.scatter(self.current_skeleton[:, 1], self.current_skeleton[:, 2], 
+                          c='grey', s=10, alpha=0.5, label='Skeleton')
+        
+        if self.current_outline is not None and len(self.current_outline) > 0 and self.show_cell_outline.get():
+            ax.plot(self.current_outline[:, 1], self.current_outline[:, 2], 
+                    c='black', linewidth=2, alpha=0.7, label='Cell Outline')
+        
+        ax.set_xlabel('Y (μm)')
+        ax.set_ylabel('Z (μm)')
+        
+        cell_title = self.current_cell if self.current_cell else "Unknown Cell"
+        image_title = self.current_image if self.current_image else "Unknown Image"
+        flip_status = ""
+        if self.use_y_flip.get():
+            flip_status += " (Y-flipped)"
+        if self.use_z_flip.get():
+            flip_status += " (Z-flipped)"
+        
+        ax.set_title(f'{self.channel.upper()} - {image_title} - {cell_title} - YZ Projection{flip_status}')
+        
+        # Show legend if there are any elements with labels (spots, skeleton, or outline)
+        if ((self.current_spots is not None and len(self.current_spots) > 0) or
+            (self.current_skeleton is not None and len(self.current_skeleton) > 0) or 
+            (self.current_outline is not None and len(self.current_outline) > 0 and self.show_cell_outline.get())):
+            ax.legend()
+        
+        ax.grid(True, alpha=0.3)
+        ax.axis('equal')
+        
+        canvas = FigureCanvasTkAgg(fig, plot_frame)
+        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        canvas.draw()
+        
+        # Export button
+        def export_yz_pdf():
+            try:
+                output_dir = os.path.join(self.base_dir, 'interactive_batch_results')
+                os.makedirs(output_dir, exist_ok=True)
+                
+                filename = f'{self.channel}_YZ_projection_{self.current_image}_{self.current_cell}_{self.skeleton_type}.pdf'
+                filepath = os.path.join(output_dir, filename)
+                
+                fig.savefig(filepath, format='pdf', bbox_inches='tight', dpi=300)
+                messagebox.showinfo("Export Successful", f"YZ projection saved to:\n{filepath}")
+            except Exception as e:
+                messagebox.showerror("Export Error", f"Failed to export YZ projection:\n{str(e)}")
+        
+        export_btn = ttk.Button(button_frame, text="Export YZ Projection as PDF", command=export_yz_pdf)
+        export_btn.pack(side=tk.RIGHT, padx=5)
 
     def create_distance_distribution_in_window(self, parent_frame):
         fig = Figure(figsize=(10, 8), dpi=100)
@@ -1084,52 +1410,6 @@ Note: Uses ALL skeleton points (no sampling) for accurate distance calculation""
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         canvas.draw()
 
-    def optimize_skeleton_translation(self, spots, skeleton, search_range=2.0, step_size=0.2):
-        """
-        自动寻找最优骨架平移位置以最小化与spots的中位数距离
-        """
-        if len(spots) == 0 or len(skeleton) == 0:
-            return {'optimal_skeleton': skeleton, 'translation': np.array([0, 0, 0]), 'median_distance': float('inf')}
-        
-        from scipy.optimize import minimize
-        
-        def objective_function(translation):
-            """目标函数：返回平移后骨架到spots的中位数距离"""
-            translated_skeleton = skeleton + translation.reshape(1, 3)
-            distances = cdist(spots, translated_skeleton)
-            min_distances = np.min(distances, axis=1)
-            return np.median(min_distances)
-        
-        # 初始猜测：零平移
-        initial_translation = np.array([0.0, 0.0, 0.0])
-        
-        # 设置搜索边界
-        bounds = [(-search_range, search_range) for _ in range(3)]
-        
-        # 使用L-BFGS-B算法进行优化
-        try:
-            result = minimize(objective_function, initial_translation, method='L-BFGS-B', bounds=bounds)
-            optimal_translation = result.x
-            optimal_skeleton = skeleton + optimal_translation.reshape(1, 3)
-            optimal_median_distance = result.fun
-            
-            return {
-                'optimal_skeleton': optimal_skeleton,
-                'translation': optimal_translation,
-                'median_distance': optimal_median_distance
-            }
-        except Exception as e:
-            # 优化失败，静默使用原始skeleton
-            distances = cdist(spots, skeleton)
-            min_distances = np.min(distances, axis=1)
-            median_distance = np.median(min_distances)
-            return {
-                'optimal_skeleton': skeleton,
-                'translation': np.array([0, 0, 0]),
-                'median_distance': median_distance
-            }
-
-
     def batch_distance_analysis(self):
         """Batch analyze distance distribution of all images and cells using the fixed correct coordinate transformation method"""
         threshold = simpledialog.askfloat("Threshold Input", "Please enter distance threshold (μm):", minvalue=0.0, initialvalue=0.5)
@@ -1163,120 +1443,38 @@ Note: Uses ALL skeleton points (no sampling) for accurate distance calculation""
                     mapping_cell_name = f'cell_{cell_id_str}'
                     mapping_data = self.coordinate_mappings.get(image_name, {})
                     
-                    # 使用正确的方法加载数据
-                    if self.auto_compare_yflip.get():
-                        # 自动比较Y翻转模式
-                        best_result = None
-                        best_mean = None
-                        original_y_flip = self.use_y_flip.get()
-                        
-                        for y_flip in [True, False]:
-                            self.use_y_flip.set(y_flip)
-                            
-                            # 加载spots数据
-                            spots_coords, pixel_xy, pixel_z = self.load_spots_fishquant_analyze_method(
-                                cell_info['spots_file'], 
-                                cell_number=cell_number, 
-                                flip_y=y_flip, 
-                                mapping_data=mapping_data,
-                                silent=True
-                            )
-                            
-                            # 加载skeleton数据
-                            skeleton_coords = self.load_skeleton_txt_analyze_method(
-                                cell_info['skeleton_file'], 
-                                mapping_data=mapping_data,
-                                cell_name=mapping_cell_name,
-                                pixel_size_xy=pixel_xy/1000,
-                                silent=True
-                            )
-                            
-                            # 坐标转换
-                            spots_nm_xyz = spots_coords[:, [1, 0, 2]]
-                            spots_um_xyz = spots_nm_xyz / 1000.0
-                            
-                            # 中心校正
-                            skeleton_center = np.mean(skeleton_coords, axis=0)
-                            spots_center = np.mean(spots_um_xyz, axis=0)
-                            center_diff = skeleton_center - spots_center
-                            spots_corrected = spots_um_xyz - center_diff
-                            
-                            spots = spots_um_xyz  # 使用中心校正前的数据
-                            skeleton = skeleton_coords
-                            
-                            # 应用自动平移优化（如果启用）
-                            skeleton_translation = np.array([0, 0, 0])
-                            if self.auto_translate_skeleton.get():
-                                translation_result = self.optimize_skeleton_translation(spots, skeleton)
-                                skeleton = translation_result['optimal_skeleton']
-                                skeleton_translation = translation_result['translation']
-                            
-                            # 计算距离（使用所有skeleton点）
-                            spots_sample = spots[:500] if len(spots) > 500 else spots
-                            distances = cdist(spots_sample, skeleton)
-                            min_distances = np.min(distances, axis=1)
-                            mean_dist = np.mean(min_distances)
-                            
-                            if (best_mean is None) or (mean_dist < best_mean):
-                                best_mean = mean_dist
-                                best_result = {
-                                    'spots': spots.copy(),
-                                    'skeleton': skeleton.copy(),
-                                    'spots_corrected': spots_corrected.copy(),
-                                    'min_distances': min_distances.copy(),
-                                    'y_flip': y_flip,
-                                    'skeleton_translation': skeleton_translation.copy()
-                                }
-                        
-                        # 使用最优结果
-                        spots = best_result['spots']
-                        skeleton = best_result['skeleton']
-                        spots_corrected = best_result['spots_corrected']
-                        min_distances = best_result['min_distances']
-                        y_flip_used = best_result['y_flip']
-                        skeleton_translation = best_result['skeleton_translation']
-                        
-                        # 恢复原始设置
-                        self.use_y_flip.set(original_y_flip)
-                    else:
-                        # 使用当前界面设置
-                        spots_coords, pixel_xy, pixel_z = self.load_spots_fishquant_analyze_method(
-                            cell_info['spots_file'], 
-                            cell_number=cell_number, 
-                            flip_y=self.use_y_flip.get(), 
-                            mapping_data=mapping_data,
-                            silent=True
-                        )
-                        
-                        skeleton_coords = self.load_skeleton_txt_analyze_method(
-                            cell_info['skeleton_file'], 
-                            mapping_data=mapping_data,
-                            cell_name=mapping_cell_name,
-                            pixel_size_xy=pixel_xy/1000,
-                            silent=True
-                        )
-                        
-                        spots_nm_xyz = spots_coords[:, [1, 0, 2]]
-                        spots_um_xyz = spots_nm_xyz / 1000.0
-                        
-                        skeleton_center = np.mean(skeleton_coords, axis=0)
-                        spots_center = np.mean(spots_um_xyz, axis=0)
-                        center_diff = skeleton_center - spots_center
-                        spots_corrected = spots_um_xyz - center_diff
-                        
-                        spots = spots_um_xyz
-                        skeleton = skeleton_coords
-                        y_flip_used = self.use_y_flip.get()
-                        
-                        skeleton_translation = np.array([0, 0, 0])
-                        if self.auto_translate_skeleton.get():
-                            translation_result = self.optimize_skeleton_translation(spots, skeleton)
-                            skeleton = translation_result['optimal_skeleton']
-                            skeleton_translation = translation_result['translation']
-                        
-                        spots_sample = spots[:500] if len(spots) > 500 else spots
-                        distances = cdist(spots_sample, skeleton)
-                        min_distances = np.min(distances, axis=1)
+                    # 使用当前界面设置加载数据
+                    spots_coords, pixel_xy, pixel_z = self.load_spots_fishquant_analyze_method(
+                        cell_info['spots_file'], 
+                        cell_number=cell_number, 
+                        flip_y=self.use_y_flip.get(), 
+                        mapping_data=mapping_data,
+                        silent=True
+                    )
+                    
+                    skeleton_coords = self.load_skeleton_txt_analyze_method(
+                        cell_info['skeleton_file'], 
+                        mapping_data=mapping_data,
+                        cell_name=mapping_cell_name,
+                        pixel_size_xy=pixel_xy/1000,
+                        silent=True
+                    )
+                    
+                    spots_nm_xyz = spots_coords[:, [1, 0, 2]]
+                    spots_um_xyz = spots_nm_xyz / 1000.0
+                    
+                    skeleton_center = np.mean(skeleton_coords, axis=0)
+                    spots_center = np.mean(spots_um_xyz, axis=0)
+                    center_diff = skeleton_center - spots_center
+                    spots_corrected = spots_um_xyz - center_diff
+                    
+                    spots = spots_um_xyz
+                    skeleton = skeleton_coords
+                    y_flip_used = self.use_y_flip.get()
+                    
+                    spots_sample = spots[:500] if len(spots) > 500 else spots
+                    distances = cdist(spots_sample, skeleton)
+                    min_distances = np.min(distances, axis=1)
                     
                     # 统计结果
                     below = (min_distances < threshold)
@@ -1292,12 +1490,7 @@ Note: Uses ALL skeleton points (no sampling) for accurate distance calculation""
                             'distance_to_skeleton_um': d,
                             'exceeds_threshold': d >= threshold,
                             'threshold_um': threshold,
-                            'y_flip_used': y_flip_used,
-                            'auto_compare_enabled': self.auto_compare_yflip.get(),
-                            'auto_translate_enabled': self.auto_translate_skeleton.get(),
-                            'skeleton_translation_x': skeleton_translation[0],
-                            'skeleton_translation_y': skeleton_translation[1],
-                            'skeleton_translation_z': skeleton_translation[2]
+                            'y_flip_used': y_flip_used
                         })
                     
                     cell_spot_counts.append(len(min_distances))
@@ -1312,12 +1505,7 @@ Note: Uses ALL skeleton points (no sampling) for accurate distance calculation""
                         'min_distance': np.min(min_distances),
                         'max_distance': np.max(min_distances),
                         f'ratio_below_{threshold}': below_ratio,
-                        'y_flip_used': y_flip_used,
-                        'auto_compare_enabled': self.auto_compare_yflip.get(),
-                        'auto_translate_enabled': self.auto_translate_skeleton.get(),
-                        'skeleton_translation_x': skeleton_translation[0],
-                        'skeleton_translation_y': skeleton_translation[1],
-                        'skeleton_translation_z': skeleton_translation[2]
+                        'y_flip_used': y_flip_used
                     })
                     
                 except Exception as e:
@@ -1442,12 +1630,6 @@ Note: Uses ALL skeleton points (no sampling) for accurate distance calculation""
                     spots = spots_um_xyz 
                     skeleton = skeleton_coords
                     
-                    skeleton_translation = np.array([0, 0, 0])
-                    if self.auto_translate_skeleton.get():
-                        translation_result = self.optimize_skeleton_translation(spots, skeleton)
-                        skeleton = translation_result['optimal_skeleton']
-                        skeleton_translation = translation_result['translation']
-                    
                     # Load VTK polylines for skeleton
                     skeleton_dir = os.path.dirname(cell_info['skeleton_file'])
                     vtk_polylines = self.load_skeleton_from_vtk(skeleton_dir, cell_name)
@@ -1471,7 +1653,6 @@ Note: Uses ALL skeleton points (no sampling) for accurate distance calculation""
                             'distances': min_distances,
                             'outlier_indices': outlier_indices,
                             'threshold': threshold,
-                            'skeleton_translation': skeleton_translation,
                             'original_cell_info': cell_info
                         }
                 
@@ -1670,11 +1851,7 @@ Note: Uses ALL skeleton points (no sampling) for accurate distance calculation""
                             'distance_to_skeleton_um': distances[idx],
                             'threshold_um': threshold,
                             'y_flip_used': self.use_y_flip.get(),
-                            'z_flip_used': self.use_z_flip.get(),
-                            'auto_translate_enabled': self.auto_translate_skeleton.get(),
-                            'skeleton_translation_x': cell_data['skeleton_translation'][0],
-                            'skeleton_translation_y': cell_data['skeleton_translation'][1],
-                            'skeleton_translation_z': cell_data['skeleton_translation'][2]
+                            'z_flip_used': self.use_z_flip.get()
                         })
             
             if outlier_details:
